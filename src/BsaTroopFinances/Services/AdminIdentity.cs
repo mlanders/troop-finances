@@ -3,8 +3,8 @@ using System.Security.Claims;
 namespace BsaTroopFinances.Services;
 
 /// <summary>
-/// Who a person signed into the admin area is, from their Microsoft or Google sign-in's claims
-/// (same approach as the meal-planner app). Their key is the provider plus the id the provider
+/// Who a person signed into the admin area is, from their Microsoft or Google sign-in's claims.
+/// Their key is the provider plus the id the provider
 /// gives them -- "microsoft:{object id}" or "google:{subject}" -- which nobody else can claim.
 /// Their email is shown to help recognise them, but isn't who they are: a work account's
 /// "email" claim can be set to anything by its own organisation (see <see cref="VerifiedEmail"/>

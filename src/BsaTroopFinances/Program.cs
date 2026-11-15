@@ -60,8 +60,7 @@ builder.Services.AddRazorComponents()
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 512 * 1024);
 
 // ---- Auth: three schemes, forwarded by path. /admin/* uses the "AdminCookie", issued after a
-// Microsoft (any work, school or personal account) or Google sign-in -- same approach as the
-// meal-planner app. What that person may do comes from the AdminUsers table (see
+// Microsoft (any work, school or personal account) or Google sign-in. What that person may do comes from the AdminUsers table (see
 // AdminRoleClaimsTransformation), not from the sign-in itself. /portal/* uses a separate
 // lightweight cookie issued after an emailed one-time-code login (regular parents/guardians --
 // no Microsoft or Google account required). AddPolicyScheme is what makes Blazor Server's

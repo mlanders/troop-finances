@@ -4,8 +4,7 @@
     Publishes and deploys the BSA troop finance tracker to Azure App Service.
 
 .DESCRIPTION
-    Wraps the whole "publish -> zip -> deploy" sequence, avoiding two gotchas discovered while
-    building the sibling meeting sign-in app:
+    Wraps the whole "publish -> zip -> deploy" sequence, avoiding two gotchas:
       - Publishing/zipping inside a OneDrive-synced project folder can hit transient file locks
         (OneDrive syncing mid-write). This script builds and zips in a temp folder instead.
       - Windows PowerShell 5.1's built-in System.IO.Compression.FileSystem (old .NET Framework)

@@ -79,10 +79,38 @@ public sealed record TroopInfo
         };
     }
 
-    /// <summary>The address a host gives the site when it doesn't have its own domain yet (Render's
-    /// RENDER_EXTERNAL_URL, e.g. https://troop-finances.onrender.com), so Troop:SiteUrl can wait.</summary>
-    private static string? HostAddress(IConfiguration configuration) =>
-        configuration["RENDER_EXTERNAL_URL"] is { Length: > 0 } address ? address : null;
+    /// <summary>The address a host gives the site when it doesn't have its own domain yet, so
+    /// Troop:SiteUrl can wait: from the variables each host sets inside the container.</summary>
+    private static string? HostAddress(IConfiguration configuration)
+    {
+        string? Value(string key) => configuration[key] is { Length: > 0 } value ? value.Trim() : null;
+
+        // Render: the whole address, e.g. https://troop-finances.onrender.com
+        if (Value("RENDER_EXTERNAL_URL") is { } render)
+        {
+            return render;
+        }
+
+        // Railway: just the host, e.g. troop-finances-production.up.railway.app
+        if (Value("RAILWAY_PUBLIC_DOMAIN") is { } railway)
+        {
+            return $"https://{railway}";
+        }
+
+        // Fly.io: every app is <name>.fly.dev
+        if (Value("FLY_APP_NAME") is { } fly)
+        {
+            return $"https://{fly}.fly.dev";
+        }
+
+        // Azure Container Apps: <app name>.<environment's domain>
+        if (Value("CONTAINER_APP_NAME") is { } containerApp && Value("CONTAINER_APP_ENV_DNS_SUFFIX") is { } suffix)
+        {
+            return $"https://{containerApp}.{suffix}";
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Makes "local time" the troop's: every page formats dates via ToLocalTime()/DateTime.Today,

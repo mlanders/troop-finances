@@ -1,8 +1,7 @@
 namespace BsaTroopFinances.Data.Entities;
 
 /// <summary>
-/// A scout in this app's own roster (independent of the meeting sign-in app's roster --
-/// deliberately not a live cross-app dependency; see README).
+/// A scout in this app's own roster (kept here, not read live from any other system).
 /// PartitionKey is a constant and RowKey is the scout's id; (PartitionKey, RowKey) is the
 /// primary key, kept from the Table Storage era.
 /// </summary>

@@ -5,8 +5,10 @@ working unchanged. It can also run anywhere that runs a container: Fly.io, Rende
 DigitalOcean App Platform, Azure Container Apps, Google Cloud Run, Cloudflare Containers, or your
 own server with Docker. This page covers what it needs there and how to set it up.
 
-**Setting up a new troop?** [SETUP.md](SETUP.md) is the step-by-step guide for the one-click
-Render setup (`render.yaml`); this page is the full reference behind it.
+**Setting up a new troop?** [SETUP.md](SETUP.md) is the step-by-step guide for the ready-made
+setups (Render, Railway, DigitalOcean, Azure Container Apps, Fly.io, or your own server with
+Docker Compose); this page is the full reference behind them. [BUTTONS.md](BUTTONS.md) is for
+whoever maintains those setups.
 
 ## What the app needs
 

@@ -90,8 +90,10 @@ public partial class TroopSettingsTests
             Assert.Equal(SKColors.White, bitmap.GetPixel(0, 0));            // opaque, as iPhones need
             Assert.Contains(Pixels(bitmap), p => p.Red > 180 && p.Green < 60 && p.Blue < 70);   // the fleur-de-lis
             Assert.Contains(Pixels(bitmap), p => p.Red > 220 && p.Green > 160 && p.Blue < 60);  // the coin
-            // The caption sits centred under the mark; the coin's navy "$" is off to the right.
-            var captionRows = Pixels(bitmap, SKRectI.Create((int)(size * 0.42), (int)(size * 0.64), (int)(size * 0.16), (int)(size * 0.18))).Count(p => p.Blue > 100 && p.Red < 40);
+            // The caption sits centred under the mark, so its first character covers the area just
+            // left of centre. Only that side is checked: the coin's navy "$" is off to the right, and
+            // with Linux's font (DejaVu, wider than Windows' Arial) its edge reaches about 57% across.
+            var captionRows = Pixels(bitmap, SKRectI.Create((int)(size * 0.40), (int)(size * 0.64), (int)(size * 0.12), (int)(size * 0.18))).Count(p => p.Blue > 100 && p.Red < 40);
             Assert.True(caption.Length > 0 ? captionRows > 0 : captionRows == 0, $"{file}: {captionRows} navy pixels in the caption area");
 
             if (Environment.GetEnvironmentVariable("TROOPFIN_ICON_DUMP") is { Length: > 0 } folder)
@@ -130,6 +132,35 @@ public partial class TroopSettingsTests
 
         Assert.Empty(TroopInfo.Problems(config));
         Assert.Equal("https://troop-finances.onrender.com/", TroopInfo.From(config).SiteUrl);
+    }
+
+    [Theory]
+    [InlineData("RAILWAY_PUBLIC_DOMAIN", "troop-finances-production.up.railway.app", null, null, "https://troop-finances-production.up.railway.app/")]
+    [InlineData("FLY_APP_NAME", "troop52-finance", null, null, "https://troop52-finance.fly.dev/")]
+    [InlineData("CONTAINER_APP_NAME", "troop-finances", "CONTAINER_APP_ENV_DNS_SUFFIX", "happy-hill-1234.westus3.azurecontainerapps.io", "https://troop-finances.happy-hill-1234.westus3.azurecontainerapps.io/")]
+    public void Other_hosts_supply_the_site_address_too(string key, string value, string? key2, string? value2, string expected)
+    {
+        (string, string)[] host = key2 is null ? [(key, value)] : [(key, value), (key2, value2!)];
+        var config = Config([.. Complete.Where(s => s.Item1 != "Troop:SiteUrl"), .. host]);
+
+        Assert.Empty(TroopInfo.Problems(config));
+        Assert.Equal(expected, TroopInfo.From(config).SiteUrl);
+    }
+
+    [Fact]
+    public void A_site_address_that_is_set_wins_over_the_hosts()
+    {
+        var config = Config([.. Complete, ("FLY_APP_NAME", "troop52-finance")]);
+
+        Assert.Equal(TroopInfo.From(Config(Complete)).SiteUrl, TroopInfo.From(config).SiteUrl);
+    }
+
+    [Fact]
+    public void Half_of_a_container_apps_address_is_not_enough()
+    {
+        var config = Config([.. Complete.Where(s => s.Item1 != "Troop:SiteUrl"), ("CONTAINER_APP_NAME", "troop-finances")]);
+
+        Assert.Contains("Troop:SiteUrl isn't set", TroopInfo.Problems(config));
     }
 
     /// <summary>

@@ -1,0 +1,105 @@
+# One-click setup on DigitalOcean App Platform (the "Deploy to DigitalOcean" button in README.md):
+# the app from the Dockerfile and a PostgreSQL dev database. DigitalOcean asks for every value
+# below while creating it; see infra/SETUP.md "DigitalOcean" for what to have ready.
+#
+# App Platform has no disks that survive a redeploy, so receipts and backups go to two Spaces
+# buckets (or any S3-compatible ones) that you create first.
+#
+# Costs about $12/month (the app, 1 GB) + $7 (the dev database) + $5 (Spaces).
+#
+# The repository address below must match the button's, so a fork that changes the button changes
+# this too.
+spec:
+  name: troop-finances
+  services:
+    - name: web
+      git:
+        repo_clone_url: https://github.com/sacparker09/troop-finances.git
+        branch: main
+      dockerfile_path: Dockerfile
+      http_port: 8080
+      instance_count: 1            # one copy only: each open page is connected to it (infra/HOSTING.md)
+      instance_size_slug: apps-s-1vcpu-1gb
+      health_check:
+        http_path: /healthz
+        initial_delay_seconds: 20
+      envs:
+        - key: ASPNETCORE_ENVIRONMENT
+          value: Production
+        # ---- Your troop (infra/HOSTING.md "Your troop's settings") ----
+        - key: Troop__Name
+          value: "Troop 52"
+        - key: Troop__ContactEmail
+          value: "treasurer@example.org"
+        - key: Troop__TimeZone
+          value: "America/Chicago"
+        - key: Troop__SiteUrl
+          value: ${APP_URL}          # the app's own address; change it once you add a domain
+        # ---- Who runs it ----
+        - key: Auth__GlobalAdmins__0
+          value: "you@example.org"
+        - key: Auth__BootstrapEditors__0
+          value: "treasurer@example.org"
+        - key: Auth__LoginCodePepper
+          type: SECRET
+          value: "paste a long random string; never change it once set"
+        # ---- Admin sign-in with Google ----
+        - key: Authentication__Google__ClientId
+          value: "from Google Cloud console"
+        - key: Authentication__Google__ClientSecret
+          type: SECRET
+          value: "from Google Cloud console"
+        # ---- Email: guardians' sign-in codes and notices ----
+        - key: Email__Provider
+          value: Smtp
+        - key: Email__SenderAddress
+          value: "noreply@example.org"
+        - key: Email__Smtp__Host
+          value: "smtp.resend.com"
+        - key: Email__Smtp__Port
+          value: "587"
+        - key: Email__Smtp__Username
+          value: "resend"
+        - key: Email__Smtp__Password
+          type: SECRET
+          value: "from your email service"
+        # ---- Database ----
+        - key: Database__Provider
+          value: Postgres
+        - key: ConnectionStrings__FinanceDb
+          type: SECRET
+          value: ${db.DATABASE_URL}
+        # ---- Receipts: a private Spaces bucket ----
+        - key: Storage__Provider
+          value: S3
+        - key: Storage__S3__ServiceUrl
+          value: "https://nyc3.digitaloceanspaces.com"
+        - key: Storage__S3__Region
+          value: "us-east-1"
+        - key: Storage__S3__Bucket
+          value: "troop52-receipts"
+        - key: Storage__S3__AccessKey
+          type: SECRET
+          value: "Spaces access key"
+        - key: Storage__S3__SecretKey
+          type: SECRET
+          value: "Spaces secret key"
+        # ---- Nightly backups: a second private bucket ----
+        - key: BackupStorage__Provider
+          value: S3
+        - key: BackupStorage__S3__ServiceUrl
+          value: "https://nyc3.digitaloceanspaces.com"
+        - key: BackupStorage__S3__Region
+          value: "us-east-1"
+        - key: BackupStorage__S3__Bucket
+          value: "troop52-backups"
+        - key: BackupStorage__S3__AccessKey
+          type: SECRET
+          value: "Spaces access key"
+        - key: BackupStorage__S3__SecretKey
+          type: SECRET
+          value: "Spaces secret key"
+  databases:
+    - name: db
+      engine: PG
+      production: false

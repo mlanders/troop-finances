@@ -5,7 +5,7 @@
 //
 // NOT covered here (must be done manually -- see infra/DEPLOY.md):
 //   - The Entra ID (Azure AD) app registration for the treasurer/admin side (a Microsoft Graph
-//     object, not an Azure resource -- Bicep/ARM can't create it, same reason as the sign-in app).
+//     object, not an Azure resource -- Bicep/ARM can't create it).
 //   - DNS verification for the noreply@<your-domain> sender address (a customer-managed domain
 //     needs TXT/SPF/CNAME records added at that domain's DNS provider -- Bicep can create the
 //     Domain resource but can't touch DNS outside Azure).

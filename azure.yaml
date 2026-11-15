@@ -1,0 +1,10 @@
+# Azure Developer CLI (azd): `azd up` creates the same setup as the Deploy to Azure button
+# (infra/container-apps/main.bicep), asking for each setting on the way. See infra/SETUP.md "Azure".
+#
+# It runs the image published from this repository (ghcr.io/sacparker09/troop-finances), so there is
+# no build step here. Updating to a newer image: infra/SETUP.md "Updates".
+name: troop-finances
+infra:
+  provider: bicep
+  path: infra/container-apps
+  module: main

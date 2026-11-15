@@ -26,8 +26,9 @@ appsettings.*.local.json
 .DS_Store
 Thumbs.db
 
-## Local docker compose overrides
+## Local docker compose overrides, and a server's settings for docker-compose.prod.yml
 .env
+.env.prod
 
 ## Each deployment's own Azure names and parameters (see infra/DEPLOY.md step 1); kept out of git
 infra/local/
