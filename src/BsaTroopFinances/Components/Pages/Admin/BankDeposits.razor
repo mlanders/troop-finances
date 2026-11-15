@@ -1,0 +1,324 @@
+@page "/admin/bank/deposits"
+@rendermode InteractiveServer
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@inject IFundraiserEventRepository FundraiserRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Deposits</PageTitle>
+
+<div class="page-header-row">
+    <h1>Deposits</h1>
+    <p class="hint">Payments and money donations wait here until they&rsquo;re deposited. Pick what&rsquo;s going to the bank together, count the cash, and print the record.</p>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_accounts.Count == 0)
+{
+    <div class="alert alert-info">Add the troop&rsquo;s bank account first, on <a href="/admin/bank/accounts/new">Bank &rarr; Add an account</a>.</div>
+}
+else
+{
+    <div class="card">
+        <h2>Waiting to be deposited</h2>
+        @if (_waiting.Count == 0)
+        {
+            <p>Nothing is waiting. Payments and donations recorded from now on will appear here.</p>
+        }
+        else
+        {
+            @if (_canWrite)
+            {
+                <div class="filter-bar">
+                    <div class="filter-group" role="group" aria-label="Select items">
+                        <span class="filter-label">Select</span>
+                        <div class="choice-grid-compact">
+                            @foreach (var method in Methods)
+                            {
+                                <button class="choice-btn choice-btn-compact" @onclick="() => SelectMethod(method)">All @Plural(method)</button>
+                            }
+                            <button class="choice-btn choice-btn-compact" @onclick="() => _selected.Clear()">None</button>
+                        </div>
+                    </div>
+                </div>
+            }
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Waiting to be deposited">
+            <table class="report-table">
+                <thead>
+                    <tr>@if (_canWrite) { <th></th> }<th>Received</th><th>From</th><th>For</th><th>How</th><th>Reference</th><th>Amount</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _waiting.OrderBy(i => MethodOrder(i.Method)).ThenBy(i => i.Date))
+                    {
+                        var key = (item.Kind, item.SourceId);
+                        <tr>
+                            @if (_canWrite)
+                            {
+                                <td><input type="checkbox" checked="@_selected.Contains(key)" @onchange="() => Toggle(key)" aria-label="Deposit @item.Payer's @item.Amount.ToString("C")" /></td>
+                            }
+                            <td>@item.Date.UtcDateTime.ToString("MMM d, yyyy")</td>
+                            <td>@item.Payer</td>
+                            <td><div class="cell-wrap">@item.For</div></td>
+                            <td>@item.Method</td>
+                            <td>@item.Reference</td>
+                            <td class="money">@item.Amount.ToString("C")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    @if (_canWrite)
+    {
+        <div class="card" id="newDeposit">
+            <h2>Make a deposit</h2>
+
+            <h3>Other income on this deposit</h3>
+            <p class="hint">Money with no other record in the app, such as cash from a car wash or popcorn booth.</p>
+            @foreach (var line in _other)
+            {
+                <div class="deposit-other-line">
+                    <input type="text" @bind="line.Description" @bind:event="oninput" placeholder="What it is, e.g. Car wash cash" aria-label="Description" />
+                    <select @bind="line.Method" aria-label="How it was received">
+                        @foreach (var method in Methods)
+                        {
+                            <option value="@method">@method</option>
+                        }
+                    </select>
+                    <input type="text" inputmode="decimal" data-money-input value="@line.AmountText" @onchange="e => SetOtherAmount(line, e)" aria-label="Amount" style="max-width:9rem;" />
+                    @if (_fundraisers.Count > 0)
+                    {
+                        <select @bind="line.FundraiserId" aria-label="Fundraiser">
+                            <option value="">Not from a fundraiser</option>
+                            @foreach (var fundraiser in _fundraisers)
+                            {
+                                <option value="@fundraiser.EventId">@fundraiser.Name</option>
+                            }
+                        </select>
+                    }
+                    <button type="button" class="btn btn-ghost-danger btn-sm" @onclick="() => _other.Remove(line)" aria-label="Remove this line"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+            }
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => _other.Add(new OtherLine())"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add other income</button>
+
+            @if (CashTotal > 0)
+            {
+                <h3 style="margin-top:1.5rem;">Count the cash</h3>
+                <div class="cash-count">
+                    @foreach (var denomination in BankPdf.Denominations)
+                    {
+                        <label class="cash-count-cell">
+                            <span>@BankPdf.DenominationLabel(denomination)</span>
+                            <input type="number" min="0" step="1" value="@(_count.GetValueOrDefault(denomination) is var n && n > 0 ? n.ToString() : "")"
+                                   @onchange="e => SetCount(denomination, e)" aria-label="Number of @BankPdf.DenominationLabel(denomination)" />
+                        </label>
+                    }
+                </div>
+                <p id="cashCheck" class="@(Counted == CashTotal ? "hint" : "hint money-negative")">
+                    Counted @Counted.ToString("C") of @CashTotal.ToString("C") cash
+                    @(Counted == CashTotal ? "✓" : $"— {Math.Abs(CashTotal - Counted):C} {(Counted < CashTotal ? "short" : "over")}")
+                </p>
+                <div class="field">
+                    <label for="counted1">Counted by</label>
+                    <input id="counted1" type="text" @bind="_countedBy1" @bind:event="oninput" />
+                </div>
+                <div class="field">
+                    <label for="counted2">And by</label>
+                    <input id="counted2" type="text" @bind="_countedBy2" @bind:event="oninput" />
+                    <p class="hint">Cash should be counted by two people.</p>
+                </div>
+            }
+
+            <div class="field" style="margin-top:1.5rem;">
+                <label for="account">Deposit into</label>
+                <select id="account" @bind="_accountId">
+                    @foreach (var account in _accounts)
+                    {
+                        <option value="@account.AccountId">@account.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="date">Date</label>
+                <input id="date" type="date" @bind="_date" />
+            </div>
+
+            <p><strong>Deposit total:</strong> <span class="money" id="depositTotal">@Total.ToString("C")</span>
+                <span class="hint">@ItemCount item@(ItemCount == 1 ? "" : "s")@(CheckCount > 0 ? $", {CheckCount} check{(CheckCount == 1 ? "" : "s")}" : "")</span></p>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <div class="row-actions">
+                <button class="btn btn-primary" id="makeDeposit" disabled="@(!CanDeposit || _saving)" @onclick="DepositAsync">Make deposit</button>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <h2>Past deposits</h2>
+        @if (_deposits.Count == 0)
+        {
+            <p>None yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Past deposits">
+            <table class="report-table">
+                <thead><tr><th>Date</th><th>Account</th><th>Checks</th><th>Cash</th><th>Other</th><th>Total</th></tr></thead>
+                <tbody>
+                    @foreach (var deposit in _deposits)
+                    {
+                        <tr>
+                            <td><a href="@($"/admin/bank/deposits/{deposit.DepositId}")">@deposit.Date.UtcDateTime.ToString("MMM d, yyyy")</a></td>
+                            <td>@AccountName(deposit.AccountId)</td>
+                            <td class="money">@deposit.CheckTotal.ToString("C")</td>
+                            <td class="money">@deposit.CashTotal.ToString("C")</td>
+                            <td class="money">@deposit.OtherTotal.ToString("C")</td>
+                            <td class="money"><strong>@deposit.Total.ToString("C")</strong></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private static readonly string[] Methods = [InvoicePaymentMethod.Check, InvoicePaymentMethod.Cash, InvoicePaymentMethod.Venmo, InvoicePaymentMethod.Other];
+
+    private sealed class OtherLine
+    {
+        public string Description { get; set; } = "";
+        public string Method { get; set; } = InvoicePaymentMethod.Cash;
+        public decimal Amount { get; set; }
+        public string AmountText { get; set; } = "";
+        public string FundraiserId { get; set; } = "";
+    }
+
+    private bool _loading = true;
+    private bool _canWrite;
+    private bool _saving;
+    private string? _error;
+    private IReadOnlyList<TroopAccountEntity> _accounts = [];
+    private IReadOnlyList<UndepositedItem> _waiting = [];
+    private IReadOnlyList<DepositEntity> _deposits = [];
+    private IReadOnlyList<FundraiserEventEntity> _fundraisers = [];
+    private readonly HashSet<(string Kind, string SourceId)> _selected = [];
+    private readonly List<OtherLine> _other = [];
+    private readonly Dictionary<decimal, int> _count = [];
+    private string _accountId = "";
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Today);
+    private string _countedBy1 = "";
+    private string _countedBy2 = "";
+
+    private IEnumerable<UndepositedItem> SelectedItems => _waiting.Where(i => _selected.Contains((i.Kind, i.SourceId)));
+
+    private IEnumerable<OtherLine> FilledOther => _other.Where(l => l.Amount > 0);
+
+    private decimal CashTotal =>
+        SelectedItems.Where(i => i.Method == InvoicePaymentMethod.Cash).Sum(i => i.Amount) + FilledOther.Where(l => l.Method == InvoicePaymentMethod.Cash).Sum(l => l.Amount);
+
+    private decimal Counted => _count.Sum(c => c.Key * c.Value);
+
+    private decimal Total => SelectedItems.Sum(i => i.Amount) + FilledOther.Sum(l => l.Amount);
+
+    private int ItemCount => SelectedItems.Count() + FilledOther.Count();
+
+    private int CheckCount => SelectedItems.Count(i => i.Method == InvoicePaymentMethod.Check) + FilledOther.Count(l => l.Method == InvoicePaymentMethod.Check);
+
+    private bool CanDeposit => ItemCount > 0 && Counted == CashTotal && !string.IsNullOrEmpty(_accountId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var accounts = await BankRepository.GetAccountsAsync();
+        _accounts = accounts.Where(a => a.IsActive).ToList();
+        _accountId = _accounts.FirstOrDefault(a => a.Kind == TroopAccountKind.Bank)?.AccountId ?? _accounts.FirstOrDefault()?.AccountId ?? "";
+        _waiting = await TroopAccountService.GetUndepositedAsync();
+        _deposits = await BankRepository.GetDepositsAsync();
+        _fundraisers = (await FundraiserRepository.GetAllAsync()).OrderByDescending(f => f.EventDate).ToList();
+        _loading = false;
+    }
+
+    private string AccountName(string accountId) => _accounts.FirstOrDefault(a => a.AccountId == accountId)?.Name ?? "";
+
+    private static int MethodOrder(string method) => Array.IndexOf(Methods, method) is var i and >= 0 ? i : Methods.Length;
+
+    private static string Plural(string method) => method switch
+    {
+        InvoicePaymentMethod.Check => "checks",
+        InvoicePaymentMethod.Cash => "cash",
+        _ => method,
+    };
+
+    private void Toggle((string, string) key)
+    {
+        if (!_selected.Remove(key))
+        {
+            _selected.Add(key);
+        }
+    }
+
+    private void SelectMethod(string method) =>
+        _selected.UnionWith(_waiting.Where(i => i.Method == method).Select(i => (i.Kind, i.SourceId)));
+
+    private static void SetOtherAmount(OtherLine line, ChangeEventArgs e)
+    {
+        line.Amount = AmountInputParser.Parse(e.Value?.ToString() ?? "");
+        line.AmountText = line.Amount > 0 ? AmountInputParser.Format(line.Amount) : "";
+    }
+
+    private void SetCount(decimal denomination, ChangeEventArgs e) =>
+        _count[denomination] = int.TryParse(e.Value?.ToString(), out var n) && n > 0 ? n : 0;
+
+    private async Task DepositAsync()
+    {
+        if (!CanDeposit || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+            var request = new DepositRequest(_accountId, _date,
+                SelectedItems.Select(i => (i.Kind, i.SourceId)).ToList(),
+                FilledOther.Select(l => new OtherIncomeLine(l.Description, l.Amount, l.Method, FundraiserId: string.IsNullOrEmpty(l.FundraiserId) ? null : l.FundraiserId)).ToList(),
+                CashTotal > 0 ? _count : new Dictionary<decimal, int>(), _countedBy1, _countedBy2);
+            var deposit = await TroopAccountService.CreateDepositAsync(request, actor);
+            Navigation.NavigateTo($"/admin/bank/deposits/{deposit.DepositId}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save this deposit. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

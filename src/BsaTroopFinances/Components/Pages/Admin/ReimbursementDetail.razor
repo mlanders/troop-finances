@@ -1,0 +1,422 @@
+@page "/admin/reimbursements/{Id}"
+@rendermode InteractiveServer
+@inject IReimbursementRequestRepository RequestRepository
+@inject IReimbursementService ReimbursementService
+@inject IFinanceAuditRepository AuditRepository
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Reimbursement Detail</PageTitle>
+
+<div class="page-header-row">
+    <h1>Reimbursement Detail</h1>
+    <a class="back-link" href="/admin/reimbursements"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to reimbursements</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_request is null)
+{
+    <div class="alert alert-danger">Request not found.</div>
+}
+else
+{
+    <div class="card">
+        <div class="reimbursement-summary">
+            <div class="reimbursement-summary-details">
+                <p><strong>From:</strong> @_request.SubmitterName (@_request.SubmitterEmail)</p>
+                @if (_request.SubmittedOnBehalfBy is not null)
+                {
+                    <p class="hint">Entered by @_request.SubmittedOnBehalfBy on behalf of this guardian.</p>
+                }
+                @if (_request.ScoutName is not null)
+                {
+                    <p><strong>Scout:</strong> @_request.ScoutName</p>
+                }
+                <p><strong>Amount:</strong> <span class="money">@_request.AmountRequested.ToString("C")</span></p>
+                <p><strong>Description:</strong> @_request.Description</p>
+                <p><strong>Submitted:</strong> @_request.SubmittedUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</p>
+                <p><strong>Status:</strong> <span class="badge badge-@_request.StatusValue.ToLowerInvariant()">@_request.StatusValue</span></p>
+
+                @if (_request.ReviewedBy is not null)
+                {
+                    <p class="hint">Reviewed by @_request.ReviewedBy on @_request.ReviewedUtc?.ToLocalTime().ToString("MMM d, yyyy")@(string.IsNullOrEmpty(_request.ReviewNotes) ? "" : $": {_request.ReviewNotes}")</p>
+                }
+                @if (_request.PaidBy is not null)
+                {
+                    <p class="hint">Paid by @_request.PaidBy on @_request.PaidUtc?.ToLocalTime().ToString("MMM d, yyyy")@(string.IsNullOrEmpty(_request.PaymentMethodNote) ? "" : $" ({_request.PaymentMethodNote})")</p>
+                }
+            </div>
+
+            <a class="receipt-preview" href="@ReceiptUrl" target="_blank" rel="noopener" title="Open receipt: @_request.ReceiptOriginalFileName" aria-label="Open receipt @_request.ReceiptOriginalFileName in a new tab">
+                <img src="@ThumbnailUrl" alt="Receipt preview" />
+                <span class="receipt-preview-label">View receipt</span>
+            </a>
+        </div>
+    </div>
+
+    @if (_canWrite && _request.StatusValue == ReimbursementStatus.Pending)
+    {
+        <div class="card">
+            <h2>Review</h2>
+            <div class="amount-edit-row">
+                <div class="field">
+                    <label for="amount">Amount requested</label>
+                    <input id="amount" data-money-input type="text" inputmode="decimal" value="@_editAmountText" @oninput="SetEditAmount" @onchange="CommitEditAmount" />
+                </div>
+                <button class="btn btn-secondary" disabled="@_saving" @onclick="UpdateAmount">Save amount</button>
+            </div>
+            <div class="row-actions">
+                <button class="btn btn-primary" disabled="@_saving" @onclick="() => OpenReviewConfirmation(ReviewAction.Approve)">Approve</button>
+                <button class="btn btn-danger" disabled="@_saving" @onclick="() => OpenReviewConfirmation(ReviewAction.Reject)">Reject</button>
+            </div>
+        </div>
+    }
+
+    @if (_canWrite && _request.StatusValue == ReimbursementStatus.Rejected)
+    {
+        <div class="card">
+            <h2>Reopen reimbursement</h2>
+            <div class="field">
+                <label for="reopenNotes">Reason or note (optional)</label>
+                <textarea id="reopenNotes" rows="2" @bind="_reopenNotes"></textarea>
+            </div>
+            <button class="btn btn-primary" disabled="@_saving" @onclick="Reopen">Move back to pending</button>
+        </div>
+    }
+
+    @if (_canWrite && _request.StatusValue == ReimbursementStatus.Approved)
+    {
+        <div class="card">
+            <h2>Mark paid</h2>
+            @if (_accounts.Count > 0)
+            {
+                <div class="field">
+                    <label for="payAccount">Paid from</label>
+                    <select id="payAccount" @bind="_payAccountId">
+                        @foreach (var account in _accounts)
+                        {
+                            <option value="@account.AccountId">@account.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="paidOn">Paid on</label>
+                    <input id="paidOn" type="date" @bind="_paidOn" />
+                </div>
+                <div class="field">
+                    <label for="checkNumber">Check number (optional)</label>
+                    <input id="checkNumber" type="text" @bind="_checkNumber" />
+                </div>
+                <p class="hint">The payment goes into the account&rsquo;s register as well.</p>
+            }
+            else
+            {
+                <div class="field">
+                    <label for="paymentNote">Payment note (e.g. "Check #1234", optional)</label>
+                    <input id="paymentNote" type="text" @bind="_paymentNote" />
+                </div>
+                <p class="hint">Add the troop&rsquo;s accounts under <a href="/admin/bank">Bank</a> to record which account paid it.</p>
+            }
+            <button class="btn btn-primary" disabled="@_saving" @onclick="MarkPaid">Mark paid</button>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <div class="card">
+        <h2>Action history</h2>
+        @if (_history.Count == 0)
+        {
+            <p class="hint">No recorded actions yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Reimbursement action history">
+            <table class="report-table">
+                <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Details / note</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _history)
+                    {
+                        <tr>
+                            <td>@entry.OccurredUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@entry.Action</td>
+                            <td>@entry.Actor</td>
+                            <td><div class="cell-wrap cell-wrap-wide">@entry.Details @entry.Notes</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    @if (_reviewConfirmation is not null)
+    {
+        <div class="confirmation-backdrop" @onclick="CloseReviewConfirmation">
+            <section class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="review-confirmation-title" @onclick:stopPropagation="true">
+                <h2 id="review-confirmation-title">@(_reviewConfirmation == ReviewAction.Approve ? "Approve reimbursement?" : "Reject reimbursement?")</h2>
+                <p>@(_reviewConfirmation == ReviewAction.Approve ? "Confirm approval of this reimbursement." : "Confirm rejection. A note is required and will be saved in the action history.")</p>
+                <div class="field">
+                    <label for="reviewNotes">Note@(_reviewConfirmation == ReviewAction.Reject ? " (required)" : " (optional)")</label>
+                    <textarea id="reviewNotes" rows="3" @bind="_notes"></textarea>
+                </div>
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+                <div class="row-actions">
+                    <button class="btn @(_reviewConfirmation == ReviewAction.Reject ? "btn-danger" : "btn-primary")"
+                            disabled="@(_saving || (_reviewConfirmation == ReviewAction.Reject && string.IsNullOrWhiteSpace(_notes)))"
+                            @onclick="ConfirmReview">
+                        @(_reviewConfirmation == ReviewAction.Approve ? "Confirm approval" : "Confirm rejection")
+                    </button>
+                    <button class="btn btn-outline-danger" disabled="@_saving" @onclick="CloseReviewConfirmation">Cancel</button>
+                </div>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [SupplyParameterFromQuery]
+    private string? GuardianId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private Data.Entities.ReimbursementRequestEntity? _request;
+    private IReadOnlyList<Data.Entities.FinanceAuditEntryEntity> _history = [];
+    private string _notes = string.Empty;
+    private ReviewAction? _reviewConfirmation;
+    private string _reopenNotes = string.Empty;
+    private string _paymentNote = string.Empty;
+    private IReadOnlyList<TroopAccountEntity> _accounts = [];
+    private string _payAccountId = string.Empty;
+    private DateOnly _paidOn = DateOnly.FromDateTime(DateTime.Today);
+    private string _checkNumber = string.Empty;
+    private decimal _editAmount;
+    private string _editAmountText = "$0.00";
+
+    private string ReceiptUrl => $"/admin/reimbursements/{_request!.RequestId}/receipt?guardianId={Uri.EscapeDataString(_request.SubmitterGuardianId)}";
+
+    private string ThumbnailUrl => $"/admin/reimbursements/{_request!.RequestId}/thumbnail?guardianId={Uri.EscapeDataString(_request.SubmitterGuardianId)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        if (_canWrite)
+        {
+            _accounts = (await BankRepository.GetAccountsAsync()).Where(a => a.IsActive).ToList();
+            _payAccountId = _accounts.FirstOrDefault(a => a.Kind == TroopAccountKind.Bank)?.AccountId ?? _accounts.FirstOrDefault()?.AccountId ?? string.Empty;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _request = string.IsNullOrEmpty(GuardianId) ? null : await RequestRepository.GetByIdAsync(GuardianId, Id);
+        _request ??= await RequestRepository.GetByRequestIdAsync(Id);
+        _history = await AuditRepository.GetForEntityAsync(Data.Entities.FinanceAuditEntityType.Reimbursement, Id);
+        if (_request is not null)
+        {
+            _editAmount = _request.AmountRequested;
+            _editAmountText = AmountInputParser.Format(_editAmount);
+        }
+        _loading = false;
+    }
+
+    private void SetEditAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _editAmountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _editAmount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitEditAmount(ChangeEventArgs e)
+    {
+        SetEditAmount(e);
+        _editAmountText = AmountInputParser.Format(_editAmount);
+    }
+
+    private async Task UpdateAmount()
+    {
+        if (!_canWrite || _request is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var updater = await CurrentUserNameAsync();
+            await ReimbursementService.UpdateAmountAsync(_request.SubmitterGuardianId, _request.RequestId, _editAmount, updater);
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't update the amount. Enter a positive amount and try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task Reopen()
+    {
+        if (!_canWrite || _request is null || _saving || _request.StatusValue != ReimbursementStatus.Rejected)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = await CurrentUserNameAsync();
+            await ReimbursementService.ReopenAsync(_request.SubmitterGuardianId, _request.RequestId, actor, _reopenNotes);
+            _reopenNotes = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't move this reimbursement back to pending. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task<string> CurrentUserNameAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        return authState?.User.Identity?.Name ?? "unknown";
+    }
+
+    private void OpenReviewConfirmation(ReviewAction action)
+    {
+        if (!_canWrite)
+        {
+            return;
+        }
+
+        _notes = string.Empty;
+        _error = null;
+        _reviewConfirmation = action;
+    }
+
+    private void CloseReviewConfirmation()
+    {
+        if (!_saving)
+        {
+            _reviewConfirmation = null;
+            _notes = string.Empty;
+            _error = null;
+        }
+    }
+
+    private async Task ConfirmReview()
+    {
+        if (!_canWrite || _request is null || _saving || _reviewConfirmation is null)
+        {
+            return;
+        }
+
+        if (_reviewConfirmation == ReviewAction.Reject && string.IsNullOrWhiteSpace(_notes))
+        {
+            _error = "A note is required to reject this reimbursement.";
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var reviewer = await CurrentUserNameAsync();
+            if (_reviewConfirmation == ReviewAction.Approve)
+            {
+                await ReimbursementService.ApproveAsync(_request.SubmitterGuardianId, _request.RequestId, reviewer, _notes);
+            }
+            else
+            {
+                await ReimbursementService.RejectAsync(_request.SubmitterGuardianId, _request.RequestId, reviewer, _notes);
+            }
+
+            _reviewConfirmation = null;
+            _notes = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _error = _reviewConfirmation == ReviewAction.Approve
+                ? "Couldn't approve this request. Please try again."
+                : "Couldn't reject this request. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private enum ReviewAction
+    {
+        Approve,
+        Reject,
+    }
+
+    private async Task MarkPaid()
+    {
+        if (!_canWrite || _request is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var payer = await CurrentUserNameAsync();
+            if (_accounts.Count > 0)
+            {
+                await TroopAccountService.PayReimbursementAsync(_request.SubmitterGuardianId, _request.RequestId, _payAccountId, _paidOn, _checkNumber, payer);
+            }
+            else
+            {
+                await ReimbursementService.MarkPaidAsync(_request.SubmitterGuardianId, _request.RequestId, payer, _paymentNote);
+            }
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't mark this request paid. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

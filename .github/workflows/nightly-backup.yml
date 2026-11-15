@@ -1,0 +1,29 @@
+# Starts the app's nightly backup from outside, for a host that stops the app when nobody is using
+# it (Backup:Schedule "External"; see infra/HOSTING.md "Letting the app sleep"). Does nothing until
+# the repository variable BACKUP_TRIGGER_URL and the secret BACKUP_TRIGGER_KEY are set. Not needed
+# on Azure App Service, where the app runs the backup itself.
+name: Nightly backup
+
+on:
+  schedule:
+    # 10:15 UTC = 2:15 AM Pacific standard time (3:15 AM in summer): after the app's 2:00 AM cutoff.
+    - cron: "15 10 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  backup:
+    if: ${{ vars.BACKUP_TRIGGER_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Start the backup and wait for it to finish
+        env:
+          URL: ${{ vars.BACKUP_TRIGGER_URL }}
+          KEY: ${{ secrets.BACKUP_TRIGGER_KEY }}
+        # Retries cover a sleeping app that's slow to wake. A repeat the same day does nothing.
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors --retry-delay 30 --max-time 1500 \
+            -X POST -H "Authorization: Bearer $KEY" "$URL"

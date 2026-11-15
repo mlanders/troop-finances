@@ -1,0 +1,202 @@
+@page "/admin/reports/troop"
+@rendermode InteractiveServer
+@inject ITroopReportService TroopReportService
+
+<PageTitle>Troop Finances</PageTitle>
+
+<div class="page-header-row">
+    <h1>Troop Finances</h1>
+    <p class="hint">For the PLC and troop committee: the troop&rsquo;s money over time, with no scout or family named.</p>
+</div>
+
+<div class="filter-bar">
+    <div class="filter-group">
+        <label for="fromDate" class="filter-label" style="margin-bottom:0;">From</label>
+        <input id="fromDate" type="date" value="@_from.ToString("yyyy-MM-dd")" @onchange="SetFromAsync" style="width:auto;" />
+    </div>
+    <div class="filter-group">
+        <label for="toDate" class="filter-label" style="margin-bottom:0;">to</label>
+        <input id="toDate" type="date" value="@_to.ToString("yyyy-MM-dd")" @onchange="SetToAsync" style="width:auto;" />
+    </div>
+</div>
+
+<div class="action-bar">
+    <a class="btn btn-ghost" id="printReport" target="_blank" rel="noopener" href="@($"/admin/reports/troop/print?from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}")">
+        <i class="fa-solid fa-print" aria-hidden="true"></i>Print PDF
+    </a>
+</div>
+
+@if (_report is null)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    var now = _report.Current;
+    <div class="stat-grid" id="figures">
+        <div class="card stat-card stat-card-navy">
+            <h3>In the Bank</h3>
+            <p class="stat-card-number money">@Money(now.Bank)</p>
+            <p class="hint">@(_report.ShownAccounts.Count()) account@(_report.ShownAccounts.Count() == 1 ? "" : "s")</p>
+        </div>
+        <div class="card stat-card stat-card-gold">
+            <h3>Held for Scouts</h3>
+            <p class="stat-card-number money">@now.Scouts.ToString("C")</p>
+            <p class="hint">Scout account balances</p>
+        </div>
+        <div class="card stat-card stat-card-red">
+            <h3>Reimbursements Owed</h3>
+            <p class="stat-card-number money">@now.ReimbursementsOwed.ToString("C")</p>
+            <p class="hint">@now.AwaitingApproval.ToString("C") awaiting approval, @now.ApprovedUnpaid.ToString("C") approved</p>
+        </div>
+        <div class="card stat-card stat-card-green">
+            <h3>Free to Spend</h3>
+            <p class="stat-card-number money @(now.FreeToSpend < 0 ? "money-negative" : "")">@Money(now.FreeToSpend)</p>
+            <p class="hint">Plus @now.InvoicesOutstanding.ToString("C") in invoices still to be paid</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Where the money is</h2>
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Where the money is">
+        <table class="report-table" id="moneyLines">
+            <thead><tr><th></th><th>@_report.From.ToString("MMM d, yyyy")</th><th>@_report.To.ToString("MMM d, yyyy")</th><th>Change</th></tr></thead>
+            <tbody>
+                @foreach (var line in TroopReportPdf.Lines(_report))
+                {
+                    <tr class="@(line.IsTotal ? "total-row" : "")">
+                        <td style="@(line.Indent ? "padding-left:1.5rem;" : "")">@line.Name</td>
+                        <td class="money">@Money(line.Start)</td>
+                        <td class="money">@Money(line.End)</td>
+                        <td class="money @(line.Change < 0 ? "money-negative" : "")">@(line.Change is { } change ? (change > 0 ? "+" : "") + change.ToString("C") : "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+        @if (now.Bank is null)
+        {
+            <p class="hint" style="margin-top:0.75rem;">Add the troop&rsquo;s accounts under <a href="/admin/bank">Bank</a> to see what&rsquo;s in the bank and free to spend.</p>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Change over time</h2>
+        <p class="hint chart-hint">Point at or tap a month to see its figures.</p>
+        <div class="trend-chart" id="trendChart">@((MarkupString)TroopReportPdf.TrendSvg(_report, interactive: true))</div>
+    </div>
+
+    @if (_report.ShownAccounts.Any())
+    {
+        <div class="card">
+            <h2>Bank accounts</h2>
+            <div class="trend-chart" id="accountsChart">@((MarkupString)TroopReportPdf.AccountsSvg(_report, interactive: true))</div>
+        </div>
+    }
+
+    <div class="card">
+        <h2>Invoices still to be paid</h2>
+        @if (_report.InvoiceGroups.Count == 0)
+        {
+            <p>None: every invoice has been paid.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Invoices still to be paid">
+            <table class="report-table" id="invoiceGroups">
+                <thead><tr><th>For</th><th>Invoices</th><th>Oldest</th><th>Amount</th></tr></thead>
+                <tbody>
+                    @foreach (var group in _report.InvoiceGroups)
+                    {
+                        <tr>
+                            <td><div class="cell-wrap">@group.Description</div></td>
+                            <td>@group.Count</td>
+                            <td>@group.Oldest.ToString("MMM d, yyyy")</td>
+                            <td class="money">@group.Amount.ToString("C")</td>
+                        </tr>
+                    }
+                    <tr class="total-row">
+                        <td>Total</td>
+                        <td>@_report.InvoiceGroups.Sum(g => g.Count)</td>
+                        <td></td>
+                        <td class="money">@_report.InvoiceGroups.Sum(g => g.Amount).ToString("C")</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Reimbursements owed</h2>
+        @if (_report.ReimbursementGroups.Count == 0)
+        {
+            <p>None: every reimbursement has been paid.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Reimbursements owed">
+            <table class="report-table" id="reimbursementGroups">
+                <thead><tr><th>For</th><th>Requests</th><th>Awaiting approval</th><th>Approved</th><th>Amount</th></tr></thead>
+                <tbody>
+                    @foreach (var group in _report.ReimbursementGroups)
+                    {
+                        <tr>
+                            <td><div class="cell-wrap">@group.Description</div></td>
+                            <td>@group.Count</td>
+                            <td class="money">@group.AwaitingApproval.ToString("C")</td>
+                            <td class="money">@((group.Amount - group.AwaitingApproval).ToString("C"))</td>
+                            <td class="money">@group.Amount.ToString("C")</td>
+                        </tr>
+                    }
+                    <tr class="total-row">
+                        <td>Total</td>
+                        <td>@_report.ReimbursementGroups.Sum(g => g.Count)</td>
+                        <td class="money">@_report.ReimbursementGroups.Sum(g => g.AwaitingApproval).ToString("C")</td>
+                        <td class="money">@_report.ReimbursementGroups.Sum(g => g.Amount - g.AwaitingApproval).ToString("C")</td>
+                        <td class="money">@_report.ReimbursementGroups.Sum(g => g.Amount).ToString("C")</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private DateOnly _from;
+    private DateOnly _to;
+    private TroopReport? _report;
+
+    protected override async Task OnInitializedAsync()
+    {
+        (_from, _to) = FamilyStatusService.Period(null, null, DateOnly.FromDateTime(DateTime.Now));
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _report = await TroopReportService.GetAsync(_from, _to);
+        (_from, _to) = (_report.From, _report.To);
+    }
+
+    private async Task SetFromAsync(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse(e.Value?.ToString(), out var date))
+        {
+            _from = date;
+            await LoadAsync();
+        }
+    }
+
+    private async Task SetToAsync(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse(e.Value?.ToString(), out var date))
+        {
+            _to = date;
+            await LoadAsync();
+        }
+    }
+
+    private static string Money(decimal? amount) => amount?.ToString("C") ?? "—";
+}

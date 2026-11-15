@@ -1,0 +1,73 @@
+@page "/admin/guardians/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IGuardianRepository GuardianRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Add a Guardian</PageTitle>
+
+<h1>Add a Guardian</h1>
+
+<div class="card">
+    <div class="field">
+        <label for="name">Full name</label>
+        <input id="name" type="text" @bind="_newName" />
+    </div>
+    <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" @bind="_newEmail" />
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <button class="btn btn-primary" disabled="@(string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newEmail) || _adding)" @onclick="AddGuardian">
+        Add guardian
+    </button>
+    <a class="btn btn-outline-danger" href="/admin/guardians">Cancel</a>
+</div>
+
+@code {
+    private bool _adding;
+    private string? _error;
+    private string _newName = string.Empty;
+    private string _newEmail = string.Empty;
+
+    private async Task AddGuardian()
+    {
+        if (string.IsNullOrWhiteSpace(_newName) || string.IsNullOrWhiteSpace(_newEmail) || _adding)
+        {
+            return;
+        }
+
+        _adding = true;
+        _error = null;
+        try
+        {
+            var guardian = new Data.Entities.GuardianEntity
+            {
+                PartitionKey = Data.Entities.GuardianEntity.PartitionKeyValue,
+                RowKey = Data.Entities.GuardianEntity.NormalizeEmail(_newEmail),
+                GuardianId = Guid.NewGuid().ToString("N"),
+                FullName = _newName.Trim(),
+                Email = _newEmail.Trim(),
+                IsActive = true,
+                CreatedUtc = DateTimeOffset.UtcNow,
+            };
+
+            await GuardianRepository.AddAsync(guardian);
+            Navigation.NavigateTo("/admin/guardians");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't add this guardian -- that email may already be registered.";
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+}

@@ -1,0 +1,435 @@
+@page "/admin/guardians"
+@rendermode InteractiveServer
+@inject IGuardianRepository GuardianRepository
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IScoutRepository ScoutRepository
+@inject IReimbursementRequestRepository ReimbursementRepository
+@inject IFinanceAuditRepository AuditRepository
+@inject IInvoiceRepository InvoiceRepository
+@inject IGuardianAuthenticatorRepository AuthenticatorRepository
+@inject IGuardianAuthenticatorService AuthenticatorService
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Guardians</PageTitle>
+
+<div class="page-header-row">
+    <h1>Guardians</h1>
+    <p class="hint">Parents/guardians who can log into the portal with an emailed code (or an authenticator app they set up), and which scout(s) they can see there. Payments, adult invoices and status sheets are on <a href="/admin/families">Families</a>.</p>
+</div>
+
+<div class="action-bar">
+    @if (_canWrite)
+    {
+        <a class="btn btn-ghost" href="/admin/guardians/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Add a guardian</a>
+        <a class="btn btn-ghost" href="/admin/guardians/bulk"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>Bulk import</a>
+    }
+    <div class="filter-group filter-group-end" role="group" aria-label="Status filter">
+        <span class="filter-label">Status</span>
+        <div class="choice-grid-compact">
+            <button class="choice-btn choice-btn-compact @(_activeOnly == true ? "selected" : "")" @onclick="() => SetStatusFilter(true)">Active</button>
+            <button class="choice-btn choice-btn-compact @(_activeOnly == false ? "selected" : "")" @onclick="() => SetStatusFilter(false)">Inactive</button>
+            <button class="choice-btn choice-btn-compact @(_activeOnly is null ? "selected" : "")" @onclick="() => SetStatusFilter(null)">All</button>
+        </div>
+    </div>
+    <div class="filter-group">
+        <label for="nameFilter" class="filter-label" style="margin-bottom:0;">Filter by name</label>
+        <input id="nameFilter" type="text" @bind="_nameFilter" @bind:event="oninput" placeholder="Start typing a name…" style="width:auto;" />
+    </div>
+</div>
+
+<div class="card">
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (_guardians.Count == 0)
+    {
+        <p>None yet.</p>
+    }
+    else if (!FilteredGuardians.Any())
+    {
+        <p>No guardians match this filter.</p>
+    }
+    else
+    {
+        @foreach (var guardian in FilteredGuardians)
+        {
+            <div class="card" style="background:var(--tf-bg);">
+                <div class="guardian-card-header">
+                    <p>
+                        <strong>@guardian.FullName</strong> &mdash; @guardian.Email (@(guardian.IsActive ? "Active" : "Inactive"))
+                        @if (_authenticatorGuardianIds.Contains(guardian.GuardianId))
+                        {
+                            <span class="badge badge-approved" title="Can sign in with an authenticator app as well as an emailed code"><i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i> Authenticator app</span>
+                        }
+                    </p>
+                    <div class="ellipsis-menu">
+                        <input type="checkbox" id="@($"guardianMenu-{guardian.GuardianId}")" class="ellipsis-menu-check" />
+                        <label for="@($"guardianMenu-{guardian.GuardianId}")" class="ellipsis-menu-toggle" aria-label="More actions for @guardian.FullName">
+                            <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                        </label>
+                        <div class="ellipsis-menu-panel">
+                            <a class="ellipsis-menu-item" href="@($"/admin/families?g={Uri.EscapeDataString(guardian.GuardianId)}")">
+                                <i class="fa-solid fa-people-roof" aria-hidden="true"></i>
+                                Open family
+                            </a>
+                            @if (_canWrite)
+                            {
+                                <button type="button" class="ellipsis-menu-item" @onclick="() => ToggleActive(guardian)">
+                                    <i class="fa-solid @(guardian.IsActive ? "fa-user-slash" : "fa-user-check")" aria-hidden="true"></i>
+                                    @(guardian.IsActive ? "Deactivate" : "Reactivate")
+                                </button>
+                                @if (!_authenticatorGuardianIds.Contains(guardian.GuardianId) && guardian.IsActive)
+                                {
+                                    <button type="button" class="ellipsis-menu-item" @onclick="() => _inPersonSetup = guardian">
+                                        <i class="fa-solid fa-qrcode" aria-hidden="true"></i>
+                                        Set up authenticator app
+                                    </button>
+                                }
+                                @if (_authenticatorGuardianIds.Contains(guardian.GuardianId))
+                                {
+                                    <button type="button" class="ellipsis-menu-item" @onclick="() => StartRemoveAuthenticator(guardian.GuardianId)">
+                                        <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+                                        Remove authenticator app
+                                    </button>
+                                }
+                                <button type="button" class="ellipsis-menu-item ellipsis-menu-item-danger" disabled="@(!CanDeleteGuardian(guardian.GuardianId))" title="@(CanDeleteGuardian(guardian.GuardianId) ? null : "Has reimbursement requests or invoices, so this guardian can't be deleted.")" @onclick="() => StartDeleteGuardian(guardian.GuardianId)">
+                                    <i class="fa-solid fa-trash" aria-hidden="true"></i>
+                                    Delete
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-group" style="margin-bottom:0.75rem;">
+                    <span class="filter-label">Linked scouts</span>
+                    @if (_links.TryGetValue(guardian.GuardianId, out var links) && links.Count > 0)
+                    {
+                        <div class="chip-row">
+                            @foreach (var link in links)
+                            {
+                                <span class="chip">
+                                    @link.ScoutName
+                                    @if (_canWrite)
+                                    {
+                                        <button type="button" class="chip-remove" @onclick="() => StartUnlink(guardian.GuardianId, link.ScoutId, link.ScoutName)" aria-label="Remove @link.ScoutName">&times;</button>
+                                    }
+                                </span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <span class="hint">None linked yet.</span>
+                    }
+
+                    @if (_canWrite)
+                    {
+                        <select @bind="_linkScoutSelection[guardian.GuardianId]" style="width:auto;min-width:160px;">
+                            <option value="">-- Link a scout --</option>
+                            @foreach (var scout in _scouts)
+                            {
+                                <option value="@scout.ScoutId">@scout.FullName</option>
+                            }
+                        </select>
+                        <button class="btn btn-secondary btn-sm" @onclick="() => Link(guardian.GuardianId)">Link</button>
+                        @if (guardian.IsActive)
+                        {
+                            <a class="btn btn-secondary btn-sm" href="@($"/admin/reimbursements/new?guardianId={Uri.EscapeDataString(guardian.GuardianId)}")">Submit a receipt</a>
+                        }
+                    }
+                </div>
+
+                @if (_canWrite && _pendingUnlink is not null && _pendingUnlink.Value.GuardianId == guardian.GuardianId)
+                {
+                    <div class="alert alert-danger" style="margin-bottom:0.75rem;">
+                        <strong>Remove @_pendingUnlink.Value.ScoutName from @guardian.FullName's linked scouts?</strong>
+                        <div class="row-actions" style="margin-top:0.5rem;">
+                            <button class="btn btn-danger btn-sm" @onclick="ConfirmUnlink">Confirm remove</button>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="CancelUnlink">Cancel</button>
+                        </div>
+                    </div>
+                }
+
+                @if (_canWrite && _pendingAuthenticatorRemoval == guardian.GuardianId)
+                {
+                    <div class="alert alert-danger" style="margin-bottom:0.75rem;">
+                        <strong>Remove @guardian.FullName's authenticator app?</strong>
+                        <p style="margin:0.5rem 0 0;">For a lost or replaced phone. They can still sign in with an emailed code and set up the app again; they'll get an email saying it was removed.</p>
+                        <div class="row-actions" style="margin-top:0.5rem;">
+                            <button class="btn btn-danger btn-sm" disabled="@_removingAuthenticator" @onclick="() => ConfirmRemoveAuthenticator(guardian)">Confirm remove</button>
+                            <button class="btn btn-outline-danger btn-sm" disabled="@_removingAuthenticator" @onclick="() => _pendingAuthenticatorRemoval = null">Cancel</button>
+                        </div>
+                    </div>
+                }
+
+                @if (_canWrite && _pendingDelete == guardian.GuardianId)
+                {
+                    <div class="alert alert-danger" style="margin-bottom:0.75rem;">
+                        <strong>Permanently delete @guardian.FullName? This can't be undone.</strong>
+                        @if (_deleteError is not null)
+                        {
+                            <p style="margin:0.5rem 0 0;">@_deleteError</p>
+                        }
+                        <div class="row-actions" style="margin-top:0.5rem;">
+                            <button class="btn btn-danger btn-sm" disabled="@_deleting" @onclick="() => ConfirmDeleteGuardian(guardian)">Confirm delete</button>
+                            <button class="btn btn-outline-danger btn-sm" disabled="@_deleting" @onclick="CancelDeleteGuardian">Cancel</button>
+                        </div>
+                    </div>
+                }
+
+            </div>
+        }
+    }
+</div>
+
+@if (_canWrite && _inPersonSetup is { } setupGuardian)
+{
+    @* No backdrop-click dismissal: a stray tap while the guardian is scanning shouldn't throw the
+       QR code away. *@
+    <div class="confirmation-backdrop">
+        <section class="confirmation-dialog confirmation-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="in-person-setup-title">
+            <h2 id="in-person-setup-title">Set up @setupGuardian.FullName's authenticator app</h2>
+            <p class="hint">For doing it together in person. The QR code is shown only now and isn't kept anywhere you can see it again;
+                @setupGuardian.FullName gets an email once it's turned on. Close this before leaving the screen unattended.</p>
+            <AuthenticatorSetupSteps Guardian="setupGuardian" InPerson="true"
+                                     OnLinked="() => InPersonSetupLinkedAsync(setupGuardian)"
+                                     OnCancel="() => _inPersonSetup = null" />
+        </section>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private IReadOnlyList<Data.Entities.GuardianEntity> _guardians = [];
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+    private Dictionary<string, IReadOnlyList<Data.Entities.GuardianScoutLinkEntity>> _links = new();
+    private Dictionary<string, int> _reimbursementCounts = new();
+    private IReadOnlySet<string> _billedGuardianIds = new HashSet<string>();
+    private IReadOnlySet<string> _authenticatorGuardianIds = new HashSet<string>();
+    private string? _pendingAuthenticatorRemoval;
+    private Data.Entities.GuardianEntity? _inPersonSetup;
+    private bool _removingAuthenticator;
+    private Dictionary<string, string> _linkScoutSelection = new();
+    private (string GuardianId, string ScoutId, string ScoutName)? _pendingUnlink;
+    private string? _pendingDelete;
+    private bool _deleting;
+    private string? _deleteError;
+    private string _nameFilter = string.Empty;
+
+    // true = active only (default, so inactive guardians don't clutter the list), false =
+    // inactive only, null = everyone.
+    private bool? _activeOnly = true;
+
+    private bool CanDeleteGuardian(string guardianId) =>
+        (!_reimbursementCounts.TryGetValue(guardianId, out var count) || count == 0) && !_billedGuardianIds.Contains(guardianId);
+
+    private IEnumerable<Data.Entities.GuardianEntity> FilteredGuardians =>
+        _guardians
+            .Where(g => _activeOnly is null || g.IsActive == _activeOnly)
+            .Where(g => string.IsNullOrWhiteSpace(_nameFilter) || g.FullName.Contains(_nameFilter, StringComparison.OrdinalIgnoreCase));
+
+    private void SetStatusFilter(bool? activeOnly)
+    {
+        _activeOnly = activeOnly;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _guardians = await GuardianRepository.GetAllAsync();
+        _scouts = await ScoutRepository.GetActiveAsync();
+        _billedGuardianIds = await InvoiceRepository.GetGuardianIdsWithInvoicesAsync();
+        _authenticatorGuardianIds = await AuthenticatorRepository.GetGuardianIdsWithAuthenticatorAsync();
+
+        _links = new Dictionary<string, IReadOnlyList<Data.Entities.GuardianScoutLinkEntity>>();
+        _reimbursementCounts = new Dictionary<string, int>();
+        foreach (var guardian in _guardians)
+        {
+            _links[guardian.GuardianId] = await LinkRepository.GetScoutsForGuardianAsync(guardian.GuardianId);
+            _reimbursementCounts[guardian.GuardianId] = (await ReimbursementRepository.GetBySubmitterAsync(guardian.GuardianId)).Count;
+            _linkScoutSelection.TryAdd(guardian.GuardianId, string.Empty);
+        }
+
+        _loading = false;
+    }
+
+    private async Task ToggleActive(Data.Entities.GuardianEntity guardian)
+    {
+        if (!_canWrite)
+        {
+            return;
+        }
+
+        guardian.IsActive = !guardian.IsActive;
+        await GuardianRepository.UpdateAsync(guardian);
+        await LoadAsync();
+    }
+
+    private async Task Link(string guardianId)
+    {
+        if (!_canWrite || !_linkScoutSelection.TryGetValue(guardianId, out var scoutId) || string.IsNullOrEmpty(scoutId))
+        {
+            return;
+        }
+
+        var scout = _scouts.FirstOrDefault(s => s.ScoutId == scoutId);
+        if (scout is null)
+        {
+            return;
+        }
+
+        var link = new Data.Entities.GuardianScoutLinkEntity
+        {
+            PartitionKey = Data.Entities.GuardianScoutLinkEntity.BuildPartitionKey(guardianId),
+            RowKey = Data.Entities.GuardianScoutLinkEntity.BuildRowKey(scoutId),
+            GuardianId = guardianId,
+            ScoutId = scoutId,
+            ScoutName = scout.FullName,
+            CreatedUtc = DateTimeOffset.UtcNow,
+        };
+
+        await LinkRepository.AddLinkAsync(link);
+        _linkScoutSelection[guardianId] = string.Empty;
+        await LoadAsync();
+    }
+
+    private void StartUnlink(string guardianId, string scoutId, string scoutName)
+    {
+        if (!_canWrite)
+        {
+            return;
+        }
+
+        _pendingUnlink = (guardianId, scoutId, scoutName);
+    }
+
+    private void CancelUnlink()
+    {
+        _pendingUnlink = null;
+    }
+
+    private async Task ConfirmUnlink()
+    {
+        if (!_canWrite || _pendingUnlink is not { } pending)
+        {
+            return;
+        }
+
+        await LinkRepository.RemoveLinkAsync(pending.GuardianId, pending.ScoutId);
+        _pendingUnlink = null;
+        await LoadAsync();
+    }
+
+    private async Task InPersonSetupLinkedAsync(Data.Entities.GuardianEntity guardian)
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        var setUpBy = authState?.User.Identity?.Name ?? "unknown";
+        await AuditRepository.AddAsync(Data.Entities.FinanceAuditEntityType.Guardian, guardian.GuardianId, "Authenticator set up", setUpBy,
+            details: $"Set up an authenticator app in person for {guardian.FullName}'s ({guardian.Email}) portal sign-in.");
+
+        _inPersonSetup = null;
+        _authenticatorGuardianIds = await AuthenticatorRepository.GetGuardianIdsWithAuthenticatorAsync();
+    }
+
+    private void StartRemoveAuthenticator(string guardianId)
+    {
+        if (_canWrite)
+        {
+            _pendingAuthenticatorRemoval = guardianId;
+        }
+    }
+
+    private async Task ConfirmRemoveAuthenticator(Data.Entities.GuardianEntity guardian)
+    {
+        if (!_canWrite || _pendingAuthenticatorRemoval != guardian.GuardianId || _removingAuthenticator)
+        {
+            return;
+        }
+
+        _removingAuthenticator = true;
+        try
+        {
+            await AuthenticatorService.RemoveAsync(guardian);
+
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var removedBy = authState?.User.Identity?.Name ?? "unknown";
+            await AuditRepository.AddAsync(Data.Entities.FinanceAuditEntityType.Guardian, guardian.GuardianId, "Authenticator removed", removedBy,
+                details: $"Removed the authenticator app from {guardian.FullName}'s ({guardian.Email}) portal sign-in.");
+
+            _pendingAuthenticatorRemoval = null;
+            _authenticatorGuardianIds = await AuthenticatorRepository.GetGuardianIdsWithAuthenticatorAsync();
+        }
+        finally
+        {
+            _removingAuthenticator = false;
+        }
+    }
+
+    private void StartDeleteGuardian(string guardianId)
+    {
+        if (!_canWrite || !CanDeleteGuardian(guardianId))
+        {
+            return;
+        }
+
+        _deleteError = null;
+        _pendingDelete = guardianId;
+    }
+
+    private void CancelDeleteGuardian()
+    {
+        _pendingDelete = null;
+    }
+
+    private async Task ConfirmDeleteGuardian(Data.Entities.GuardianEntity guardian)
+    {
+        if (!_canWrite || _pendingDelete != guardian.GuardianId || !CanDeleteGuardian(guardian.GuardianId) || _deleting)
+        {
+            return;
+        }
+
+        _deleting = true;
+        _deleteError = null;
+        try
+        {
+            if (_links.TryGetValue(guardian.GuardianId, out var links))
+            {
+                foreach (var link in links)
+                {
+                    await LinkRepository.RemoveLinkAsync(guardian.GuardianId, link.ScoutId);
+                }
+            }
+
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var deletedBy = authState?.User.Identity?.Name ?? "unknown";
+            await AuditRepository.AddAsync(Data.Entities.FinanceAuditEntityType.Guardian, guardian.GuardianId, "Deleted", deletedBy,
+                details: $"Deleted guardian {guardian.FullName} ({guardian.Email}); no reimbursement activity on record.");
+
+            await AuthenticatorRepository.DeleteAsync(guardian.GuardianId);
+            await GuardianRepository.DeleteAsync(guardian);
+            _pendingDelete = null;
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _deleteError = "Couldn't delete this guardian. Please try again.";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+}

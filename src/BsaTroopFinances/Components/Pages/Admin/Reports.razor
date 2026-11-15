@@ -1,0 +1,121 @@
+@page "/admin/reports"
+@rendermode InteractiveServer
+@inject IReportingService ReportingService
+
+<PageTitle>Reports</PageTitle>
+
+<h1>Reports</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="card">
+        <div class="section-header">
+            <h2 class="section-header-title"><span class="stat-card-icon stat-card-navy"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i></span> Outstanding</h2>
+        </div>
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Outstanding">
+        <table class="report-table">
+            <tbody>
+                <tr><td>Pending reimbursements</td><td>@_summary!.PendingReimbursementCount</td></tr>
+                <tr><td>Pending reimbursement total</td><td class="money">@_summary.PendingReimbursementTotal.ToString("C")</td></tr>
+                <tr><td>Outstanding invoices</td><td>@_summary.OutstandingInvoiceCount</td></tr>
+                <tr><td>Outstanding invoice total</td><td class="money">@_summary.OutstandingInvoiceTotal.ToString("C")</td></tr>
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h2 class="section-header-title"><span class="stat-card-icon stat-card-gold"><i class="fa-solid fa-wallet" aria-hidden="true"></i></span> Scout accounts</h2>
+        </div>
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Scout accounts">
+        <table class="report-table">
+            <thead><tr><th>Scout</th><th>In scout account</th></tr></thead>
+            <tbody>
+                @foreach (var (scoutId, scoutName, balance) in _summary!.ScoutBalances)
+                {
+                    <tr>
+                        <td><a href="@($"/admin/scouts/{scoutId}")">@scoutName</a></td>
+                        <td class="money @(balance < 0 ? "money-negative" : "money-positive")">@balance.ToString("C")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h2 class="section-header-title"><span class="stat-card-icon stat-card-green"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span> Fundraiser totals</h2>
+        </div>
+        @if (_summary!.FundraiserTotals.Count == 0)
+        {
+            <p>No fundraisers yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Fundraiser totals">
+            <table class="report-table">
+                <thead><tr><th>Fundraiser</th><th>Date</th><th>Total raised</th><th>Expenses</th><th>Allocated to Scouts</th></tr></thead>
+                <tbody>
+                    @foreach (var (eventId, eventName, eventDate, totalRaised, totalExpenses, total) in _summary!.FundraiserTotals)
+                    {
+                        <tr>
+                            <td><a href="@($"/admin/fundraisers/{eventId}/allocate")">@eventName</a></td>
+                            <td>@eventDate.UtcDateTime.ToString("MMM d, yyyy")</td>
+                            <td class="money">@(totalRaised?.ToString("C") ?? "—")</td>
+                            <td class="money">@(totalExpenses?.ToString("C") ?? "—")</td>
+                            <td class="money">@total.ToString("C")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h2 class="section-header-title"><span class="stat-card-icon stat-card-green"><i class="fa-solid fa-hand-holding-heart" aria-hidden="true"></i></span> Donations (last 12 months)</h2>
+        </div>
+        @if (_summary!.Donations.Count == 0)
+        {
+            <p>No donations in the last 12 months.</p>
+        }
+        else
+        {
+            var donations = _summary.Donations;
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Donations">
+            <table class="report-table">
+                <tbody>
+                    <tr><td>Gifts received</td><td>@donations.Count</td></tr>
+                    <tr><td>Total received</td><td class="money">@donations.Total.ToString("C")</td></tr>
+                    <tr><td>For general use</td><td class="money">@donations.UnrestrictedTotal.ToString("C")</td></tr>
+                    <tr><td>Restricted by the donor</td><td class="money">@donations.RestrictedTotal.ToString("C")</td></tr>
+                    @if (donations.InKindTotal > 0)
+                    {
+                        <tr><td>Goods (estimated value)</td><td class="money">@donations.InKindTotal.ToString("C")</td></tr>
+                    }
+                    <tr><td>Credited to scouts</td><td class="money">@donations.CreditedToScouts.ToString("C")</td></tr>
+                    <tr><td>Thank-yous still owed</td><td><a href="/admin/donations">@donations.ThankYousOwed</a></td></tr>
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private Models.ReportSummaryModel? _summary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _summary = await ReportingService.GetSummaryAsync();
+        _loading = false;
+    }
+}

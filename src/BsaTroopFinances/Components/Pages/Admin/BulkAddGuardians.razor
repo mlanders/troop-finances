@@ -1,0 +1,268 @@
+@page "/admin/guardians/bulk"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IGuardianRepository GuardianRepository
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+@using System.Net.Mail
+
+<PageTitle>Bulk Import Guardians</PageTitle>
+
+<h1>Bulk Import Guardians</h1>
+
+@if (_preview is null)
+{
+    <div class="card">
+        <p class="hint">One guardian per line: name, then email, separated by a comma or a tab (pasting two columns from a spreadsheet works). Nothing is imported until you confirm on the next step.</p>
+        <div class="field">
+            <label for="bulkGuardians">Guardians</label>
+            <textarea id="bulkGuardians" rows="10" @bind="_input" @bind:event="oninput" placeholder="Pat Smith, pat.smith@example.com&#10;Lee Jones, lee@example.com"></textarea>
+        </div>
+
+        @if (_result is not null)
+        {
+            <div class="alert alert-success">@_result</div>
+        }
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <button class="btn btn-primary" disabled="@(string.IsNullOrWhiteSpace(_input) || _working)" @onclick="BuildPreviewAsync">Review import</button>
+        <a class="btn btn-outline-danger" href="/admin/guardians">Cancel</a>
+    </div>
+}
+else
+{
+    <div class="card">
+        <h2>Review before importing</h2>
+        <p>
+            <strong>@ToAddCount</strong> will be added,
+            <strong>@SkippedCount</strong> skipped,
+            <strong>@ProblemCount</strong> with problems.
+            Nothing has been imported yet.
+        </p>
+        @if (ProblemCount > 0)
+        {
+            <div class="alert alert-warning">Lines with problems will not be imported. Go back to fix them, or confirm to import the rest.</div>
+        }
+
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Guardian import preview">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Line</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _preview)
+                {
+                    <tr>
+                        <td>@row.LineNumber</td>
+                        <td>@row.Name</td>
+                        <td>@row.Email</td>
+                        <td>
+                            @switch (row.Outcome)
+                            {
+                                case RowOutcome.Add:
+                                    <span class="badge badge-paid">Will add</span>
+                                    break;
+                                case RowOutcome.Skip:
+                                    <span class="badge badge-pending">Skip</span>
+                                    <span class="hint">@row.Message</span>
+                                    break;
+                                default:
+                                    <span class="badge badge-rejected">Problem</span>
+                                    <span class="hint">@row.Message</span>
+                                    break;
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger" style="margin-top:1rem;">@_error</div>
+        }
+
+        <div class="row-actions" style="margin-top:1rem;">
+            <button class="btn btn-primary" disabled="@(ToAddCount == 0 || _working)" @onclick="ConfirmImportAsync">Confirm import (@ToAddCount)</button>
+            <button class="btn btn-secondary" disabled="@_working" @onclick="BackToEdit">Back to edit</button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _working;
+    private string? _result;
+    private string? _error;
+    private string _input = string.Empty;
+    private List<PreviewRow>? _preview;
+
+    private int ToAddCount => _preview?.Count(r => r.Outcome == RowOutcome.Add) ?? 0;
+    private int SkippedCount => _preview?.Count(r => r.Outcome == RowOutcome.Skip) ?? 0;
+    private int ProblemCount => _preview?.Count(r => r.Outcome == RowOutcome.Problem) ?? 0;
+
+    private async Task BuildPreviewAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_input) || _working)
+        {
+            return;
+        }
+
+        _working = true;
+        _result = null;
+        _error = null;
+        try
+        {
+            var existingEmails = (await GuardianRepository.GetAllAsync())
+                .Select(g => g.RowKey)
+                .ToHashSet();
+            var seenEmails = new HashSet<string>();
+            var rows = new List<PreviewRow>();
+
+            var lines = _input.Split('\n');
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i]))
+                {
+                    continue;
+                }
+
+                var row = ParseLine(i + 1, lines[i]);
+                if (row.Outcome == RowOutcome.Add)
+                {
+                    var normalized = GuardianEntity.NormalizeEmail(row.Email);
+                    if (existingEmails.Contains(normalized))
+                    {
+                        row = row with { Outcome = RowOutcome.Skip, Message = "Already a guardian." };
+                    }
+                    else if (!seenEmails.Add(normalized))
+                    {
+                        row = row with { Outcome = RowOutcome.Skip, Message = "Same email as an earlier line." };
+                    }
+                }
+
+                rows.Add(row);
+            }
+
+            _preview = rows;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't check this list against the existing guardians. Please try again.";
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
+    private static PreviewRow ParseLine(int lineNumber, string line)
+    {
+        var parts = line.Split([',', '\t', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var emailParts = parts.Where(p => p.Contains('@')).ToList();
+        var name = string.Join(" ", parts.Where(p => !p.Contains('@')));
+        var email = emailParts.FirstOrDefault() ?? string.Empty;
+
+        string? problem = null;
+        if (emailParts.Count == 0)
+        {
+            problem = "No email address found.";
+        }
+        else if (emailParts.Count > 1)
+        {
+            problem = "More than one email address on this line.";
+        }
+        else if (string.IsNullOrWhiteSpace(name))
+        {
+            problem = "No name found.";
+        }
+        else if (email.Any(char.IsWhiteSpace))
+        {
+            problem = "Email contains a space -- separate the name and email with a comma.";
+        }
+        else if (email.Count(c => c == '@') > 1)
+        {
+            problem = "Email has more than one @ sign.";
+        }
+        else
+        {
+            var domain = email[(email.IndexOf('@') + 1)..];
+            if (!MailAddress.TryCreate(email, out _) || !domain.Contains('.') || domain.StartsWith('.') || domain.EndsWith('.'))
+            {
+                problem = "Not a valid email address.";
+            }
+        }
+
+        return problem is null
+            ? new PreviewRow(lineNumber, name, email, RowOutcome.Add, string.Empty)
+            : new PreviewRow(lineNumber, name, email, RowOutcome.Problem, problem);
+    }
+
+    private void BackToEdit()
+    {
+        _preview = null;
+        _error = null;
+    }
+
+    private async Task ConfirmImportAsync()
+    {
+        if (_preview is null || ToAddCount == 0 || _working)
+        {
+            return;
+        }
+
+        _working = true;
+        _error = null;
+        var added = 0;
+        try
+        {
+            foreach (var row in _preview.Where(r => r.Outcome == RowOutcome.Add))
+            {
+                await GuardianRepository.AddAsync(new GuardianEntity
+                {
+                    PartitionKey = GuardianEntity.PartitionKeyValue,
+                    RowKey = GuardianEntity.NormalizeEmail(row.Email),
+                    GuardianId = Guid.NewGuid().ToString("N"),
+                    FullName = row.Name,
+                    Email = row.Email,
+                    IsActive = true,
+                    CreatedUtc = DateTimeOffset.UtcNow,
+                });
+                added++;
+            }
+
+            var notImported = SkippedCount + ProblemCount;
+            _result = $"Imported {added} guardian{(added == 1 ? "" : "s")}." +
+                (notImported > 0 ? $" {notImported} line{(notImported == 1 ? " was" : "s were")} not imported." : "") +
+                " Link scouts to them from the Guardians page.";
+            _input = string.Empty;
+            _preview = null;
+        }
+        catch (Exception)
+        {
+            _error = $"The import stopped after adding {added} guardian{(added == 1 ? "" : "s")}. Review the list again -- those already added will show as skipped.";
+            _preview = null;
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
+    private enum RowOutcome
+    {
+        Add,
+        Skip,
+        Problem,
+    }
+
+    private sealed record PreviewRow(int LineNumber, string Name, string Email, RowOutcome Outcome, string Message);
+}

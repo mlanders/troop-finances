@@ -1,0 +1,20 @@
+@inject TroopInfo Troop
+@* "Add to Home Screen" banner, shown in the portal and admin layouts. It renders hidden; the
+   script wwwroot/pwa-install.js decides whether to show it and which version, because only the
+   browser knows if the site is already installed, whether it can offer a one-tap install (Android,
+   Chrome, Edge) or has to explain the Share menu (iPhone and iPad Safari), and whether this person
+   already said "Not now". Static markup, no circuit needed, so it works on every page. *@
+
+<aside class="install-prompt" id="installPrompt" hidden aria-label="Install the app">
+    <img class="install-prompt-icon" src="icons/icon-192.png" alt="" width="44" height="44" />
+    <div class="install-prompt-text">
+        <strong>Add @Troop.ShortName to your home screen</strong>
+        <span data-install-variant="prompt">Open it like an app, right from your phone.</span>
+        <span data-install-variant="ios">Tap <i class="fa-solid fa-arrow-up-from-bracket" aria-label="Share"></i> <b>Share</b>, then <b>Add to Home Screen</b>.</span>
+        <span data-install-variant="ios-other">Open this page in <b>Safari</b>, tap <i class="fa-solid fa-arrow-up-from-bracket" aria-label="Share"></i> <b>Share</b>, then <b>Add to Home Screen</b>.</span>
+    </div>
+    <div class="install-prompt-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-install-variant="prompt" data-install-action="install">Install</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-install-action="dismiss">Not now</button>
+    </div>
+</aside>

@@ -1,0 +1,21 @@
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.PublicLayout)">
+            <NotAuthorized Context="authContext">
+                @* An anonymous visitor needs to sign in; a signed-in admin who lacks the role a
+                   page needs gets a plain explanation instead -- bouncing them back through
+                   sign-in would just loop, since re-authenticating doesn't grant a role an
+                   Editor hasn't given them. *@
+                @if (authContext.User.Identity?.IsAuthenticated == true)
+                {
+                    <AdminAccessDenied User="authContext.User" />
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

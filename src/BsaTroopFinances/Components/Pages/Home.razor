@@ -1,0 +1,62 @@
+@page "/"
+@inject TroopInfo Troop
+@using Microsoft.AspNetCore.Authentication
+@inject NavigationManager Navigation
+
+@* The front door: one tile per kind of person, each going to its own sign-in -- an emailed code
+   for parents and guardians, Microsoft or Google for adult leaders. The home-screen app opens
+   here too, so someone already signed in on just one side goes straight there; a person signed
+   in as both a parent and a leader still gets to pick. *@
+
+<PageTitle>@Troop.AppName</PageTitle>
+
+<div class="card signin welcome">
+    <img class="signin-logo" src="favicon.svg" alt="" width="64" height="64" />
+    <h1>@Troop.AppName</h1>
+    <p class="signin-sub">Reimbursements, scout accounts and fundraiser tracking</p>
+
+    <p class="welcome-prompt">Who's signing in?</p>
+    <div class="welcome-choices">
+        <a class="welcome-choice welcome-choice-parent" href="/portal/login">
+            <span class="welcome-choice-icon" aria-hidden="true"><i class="fa-solid fa-people-roof"></i></span>
+            <span class="welcome-choice-text">
+                <span class="welcome-choice-title">Parent or guardian</span>
+                <span class="welcome-choice-desc">Submit receipts and see your scout's balance and invoices</span>
+            </span>
+            <i class="fa-solid fa-chevron-right welcome-choice-arrow" aria-hidden="true"></i>
+        </a>
+        <a class="welcome-choice welcome-choice-leader" href="/admin">
+            <span class="welcome-choice-icon" aria-hidden="true"><i class="fa-solid fa-user-shield"></i></span>
+            <span class="welcome-choice-text">
+                <span class="welcome-choice-title">Adult leader</span>
+                <span class="welcome-choice-desc">Treasurer and adult leadership: accounts, invoices and reimbursements</span>
+            </span>
+            <i class="fa-solid fa-chevron-right welcome-choice-arrow" aria-hidden="true"></i>
+        </a>
+    </div>
+
+    <p class="signin-foot">Parents sign in with a one-time code sent to their email. Adult leaders
+        sign in with a Microsoft or Google account.</p>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // "/" is outside /portal, so the path-based default scheme only looks at the admin
+        // cookie; ask each scheme directly.
+        var parent = (await HttpContext.AuthenticateAsync("ParentAuth")).Succeeded;
+        var leader = (await HttpContext.AuthenticateAsync("AdminCookie")).Succeeded;
+        if (parent != leader)
+        {
+            Navigation.NavigateTo(parent ? "/portal" : "/admin");
+        }
+    }
+}

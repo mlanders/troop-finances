@@ -1,0 +1,185 @@
+@page "/admin/reports/monthly"
+@rendermode InteractiveServer
+@inject IReportingService ReportingService
+@inject TimeProvider TimeProvider
+@using System.Globalization
+@using BsaTroopFinances.Data.Entities
+
+<PageTitle>Monthly Detail</PageTitle>
+
+<div class="page-header-row">
+    <h1>Monthly Detail</h1>
+</div>
+
+<div class="action-bar">
+    <div class="filter-group">
+        <label class="filter-label" for="fromMonth">From</label>
+        <input id="fromMonth" type="month" value="@_fromText" @onchange="SetFromAsync" />
+        <span>&ndash;</span>
+        <label class="filter-label" for="toMonth">To</label>
+        <input id="toMonth" type="month" value="@_toText" @onchange="SetToAsync" />
+        <button class="btn btn-secondary btn-sm" disabled="@IsDefaultRange" @onclick="ResetAsync">Last 12 months</button>
+    </div>
+    <span class="hint" style="margin-left:auto;">Voided invoices aren't counted.</span>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-warning">@_error</div>
+}
+
+<div class="card">
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Monthly invoice and reimbursement totals">
+        <table class="report-table monthly-report">
+            <thead>
+                <tr>
+                    <th rowspan="2">Month</th>
+                    <th colspan="2" class="group-start">Invoiced</th>
+                    <th colspan="@(Methods.Count + 1)" class="group-start">Invoice payments received</th>
+                    <th colspan="2" class="group-start" title="Reimbursements submitted">Reimb. submitted</th>
+                    <th colspan="2" class="group-start" title="Reimbursements paid">Reimb. paid</th>
+                    <th colspan="2" class="group-start">Donations</th>
+                </tr>
+                <tr>
+                    <th class="num group-start">#</th><th class="num">Amount</th>
+                    @foreach (var method in Methods)
+                    {
+                        <th class="num @(method == Methods[0] ? "group-start" : "")">@method</th>
+                    }
+                    <th class="num">Total</th>
+                    <th class="num group-start">#</th><th class="num">Amount</th>
+                    <th class="num group-start">#</th><th class="num">Amount</th>
+                    <th class="num group-start">#</th><th class="num">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _rows)
+                {
+                    <tr>
+                        <td>@row.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture)</td>
+                        <td class="num group-start">@Count(row.InvoicedCount)</td>
+                        <td class="num money">@Money(row.InvoicedTotal)</td>
+                        @foreach (var method in Methods)
+                        {
+                            <td class="num money @(method == Methods[0] ? "group-start" : "")">@Money(row.PaymentsFor(method))</td>
+                        }
+                        <td class="num money">@Money(row.PaymentsTotal)</td>
+                        <td class="num group-start">@Count(row.ReimbursementsSubmittedCount)</td>
+                        <td class="num money">@Money(row.ReimbursementsSubmittedTotal)</td>
+                        <td class="num group-start">@Count(row.ReimbursementsPaidCount)</td>
+                        <td class="num money">@Money(row.ReimbursementsPaidTotal)</td>
+                        <td class="num group-start">@Count(row.DonationsCount)</td>
+                        <td class="num money">@Money(row.DonationsTotal)</td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr class="monthly-total">
+                    <td>Total</td>
+                    <td class="num group-start">@_rows.Sum(r => r.InvoicedCount)</td>
+                    <td class="num money">@_rows.Sum(r => r.InvoicedTotal).ToString("C")</td>
+                    @foreach (var method in Methods)
+                    {
+                        <td class="num money @(method == Methods[0] ? "group-start" : "")">@_rows.Sum(r => r.PaymentsFor(method)).ToString("C")</td>
+                    }
+                    <td class="num money">@_rows.Sum(r => r.PaymentsTotal).ToString("C")</td>
+                    <td class="num group-start">@_rows.Sum(r => r.ReimbursementsSubmittedCount)</td>
+                    <td class="num money">@_rows.Sum(r => r.ReimbursementsSubmittedTotal).ToString("C")</td>
+                    <td class="num group-start">@_rows.Sum(r => r.ReimbursementsPaidCount)</td>
+                    <td class="num money">@_rows.Sum(r => r.ReimbursementsPaidTotal).ToString("C")</td>
+                    <td class="num group-start">@_rows.Sum(r => r.DonationsCount)</td>
+                    <td class="num money">@_rows.Sum(r => r.DonationsTotal).ToString("C")</td>
+                </tr>
+            </tfoot>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    private const int MaxMonths = 60;
+
+    private static readonly IReadOnlyList<string> Methods =
+        [.. InvoicePaymentMethod.External, InvoicePaymentMethod.ScoutFunds];
+
+    private bool _loading = true;
+    private string? _error;
+    private string _fromText = string.Empty;
+    private string _toText = string.Empty;
+    private IReadOnlyList<Models.MonthlyReportRow> _rows = [];
+
+    private DateOnly ThisMonth
+    {
+        get
+        {
+            var now = TimeProvider.GetLocalNow();
+            return new DateOnly(now.Year, now.Month, 1);
+        }
+    }
+
+    private bool IsDefaultRange => _fromText == Format(ThisMonth.AddMonths(-11)) && _toText == Format(ThisMonth);
+
+    private static string Format(DateOnly month) => month.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+
+    private static bool TryParse(string? text, out DateOnly month) =>
+        DateOnly.TryParseExact($"{text}-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out month);
+
+    // Blank instead of $0.00 / 0 keeps a quiet month easy to scan.
+    private static string Money(decimal amount) => amount == 0 ? "" : amount.ToString("C");
+
+    private static string Count(int count) => count == 0 ? "" : count.ToString();
+
+    protected override async Task OnInitializedAsync() => await ResetAsync();
+
+    private async Task ResetAsync()
+    {
+        _fromText = Format(ThisMonth.AddMonths(-11));
+        _toText = Format(ThisMonth);
+        await LoadAsync();
+    }
+
+    private async Task SetFromAsync(ChangeEventArgs e)
+    {
+        _fromText = e.Value?.ToString() ?? string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task SetToAsync(ChangeEventArgs e)
+    {
+        _toText = e.Value?.ToString() ?? string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        if (!TryParse(_fromText, out var from) || !TryParse(_toText, out var to))
+        {
+            _error = "Pick both a From and a To month.";
+            return;
+        }
+
+        if (from > to)
+        {
+            (from, to, _fromText, _toText) = (to, from, _toText, _fromText);
+        }
+
+        var months = (to.Year - from.Year) * 12 + to.Month - from.Month + 1;
+        if (months > MaxMonths)
+        {
+            from = to.AddMonths(-(MaxMonths - 1));
+            _fromText = Format(from);
+            _error = $"Showing the most recent {MaxMonths} months of that range (5 years at a time).";
+        }
+
+        _loading = true;
+        _rows = await ReportingService.GetMonthlyAsync(from, to);
+        _loading = false;
+    }
+}

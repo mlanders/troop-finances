@@ -1,0 +1,164 @@
+@page "/admin/scouts"
+@rendermode InteractiveServer
+@inject IScoutRepository ScoutRepository
+@inject IInvoiceRepository InvoiceRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Scouts</PageTitle>
+
+<div class="page-header-row">
+    <h1>Scouts</h1>
+    <p class="hint">This app keeps its own scout list, independent of scoutbook or meeting sign-in app.</p>
+</div>
+
+<div class="action-bar">
+    @if (_canWrite)
+    {
+        <a class="btn btn-ghost" href="/admin/scouts/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Add a scout</a>
+        <a class="btn btn-ghost" href="/admin/scouts/bulk"><i class="fa-solid fa-layer-group" aria-hidden="true"></i>Bulk add scouts</a>
+    }
+    <div class="filter-group filter-group-end" role="group" aria-label="Status filter">
+        <span class="filter-label">Status</span>
+        <div class="choice-grid-compact">
+            <button class="choice-btn choice-btn-compact @(_activeOnly == true ? "selected" : "")" @onclick="() => SetStatusFilter(true)">Active</button>
+            <button class="choice-btn choice-btn-compact @(_activeOnly == false ? "selected" : "")" @onclick="() => SetStatusFilter(false)">Inactive</button>
+            <button class="choice-btn choice-btn-compact @(_activeOnly is null ? "selected" : "")" @onclick="() => SetStatusFilter(null)">All</button>
+        </div>
+    </div>
+    <div class="filter-group">
+        <label for="nameFilter" class="filter-label" style="margin-bottom:0;">Filter by name</label>
+        <input id="nameFilter" type="text" @bind="_nameFilter" @bind:event="oninput" placeholder="Start typing a name…" style="width:auto;" />
+    </div>
+</div>
+
+<div class="card">
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (_scouts.Count == 0)
+    {
+        <p>None yet.</p>
+    }
+    else if (!FilteredScouts.Any())
+    {
+        <p>No scouts match this filter.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Scout roster">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>In scout account</th>
+                    <th>Family owes</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var scout in FilteredScouts)
+                {
+                    <tr>
+                        <td><a href="@($"/admin/scouts/{scout.ScoutId}")">@scout.FullName</a></td>
+                        <td class="money @(scout.CachedBalance < 0 ? "money-negative" : "money-positive")">@scout.CachedBalance.ToString("C")</td>
+                        @{ var owes = _owed.GetValueOrDefault(scout.ScoutId); }
+                        <td class="money @(owes > 0 ? "money-negative" : "")">@(owes > 0 ? owes.ToString("C") : "—")</td>
+                        <td>@(scout.IsActive ? "Active" : "Inactive")</td>
+                        <td>
+                            @if (_canWrite)
+                            {
+                                <div class="ellipsis-menu">
+                                    <input type="checkbox" id="@($"scoutMenu-{scout.ScoutId}")" class="ellipsis-menu-check" />
+                                    <label for="@($"scoutMenu-{scout.ScoutId}")" class="ellipsis-menu-toggle" aria-label="More actions for @scout.FullName">
+                                        <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                    </label>
+                                    <div class="ellipsis-menu-panel">
+                                        <a class="ellipsis-menu-item" href="@($"/admin/scouts/{scout.ScoutId}")">
+                                            <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+                                            Statement
+                                        </a>
+                                        <button type="button" class="ellipsis-menu-item" @onclick="() => ToggleActive(scout)">
+                                            <i class="fa-solid @(scout.IsActive ? "fa-user-slash" : "fa-user-check")" aria-hidden="true"></i>
+                                            @(scout.IsActive ? "Deactivate" : "Reactivate")
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <a class="btn btn-secondary" href="@($"/admin/scouts/{scout.ScoutId}")">Statement</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+    private Dictionary<string, decimal> _owed = [];
+
+    // true = active only (default, so inactive scouts don't clutter the roster), false = inactive
+    // only, null = everyone.
+    private bool? _activeOnly = true;
+    private string _nameFilter = string.Empty;
+
+    private IEnumerable<Data.Entities.ScoutEntity> FilteredScouts =>
+        _scouts
+            .Where(s => _activeOnly is null || s.IsActive == _activeOnly)
+            .Where(s => string.IsNullOrWhiteSpace(_nameFilter) || s.FullName.Contains(_nameFilter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _scouts = await ScoutRepository.GetAllAsync();
+        // Still owed on each scout's unpaid invoices: the same rule as the statement and Families page.
+        _owed = (await InvoiceRepository.GetOutstandingForScoutsAsync(_scouts.Select(s => s.ScoutId).ToList()))
+            .GroupBy(i => i.ScoutId)
+            .ToDictionary(g => g.Key, g => g.Sum(i => i.AmountDueFromFamily));
+        _loading = false;
+    }
+
+    private void SetStatusFilter(bool? activeOnly)
+    {
+        _activeOnly = activeOnly;
+    }
+
+    private async Task ToggleActive(Data.Entities.ScoutEntity scout)
+    {
+        if (!_canWrite)
+        {
+            return;
+        }
+
+        // Money on the account needs a decision -- leave it, or move it to the general fund or
+        // another scout -- so that's made on the scout's statement.
+        if (scout.IsActive && scout.CachedBalance != 0)
+        {
+            Navigation.NavigateTo($"/admin/scouts/{scout.ScoutId}?deactivate=true");
+            return;
+        }
+
+        scout.IsActive = !scout.IsActive;
+        await ScoutRepository.UpdateAsync(scout);
+        await LoadAsync();
+    }
+}

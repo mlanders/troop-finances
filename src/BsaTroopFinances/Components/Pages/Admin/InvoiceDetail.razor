@@ -1,0 +1,324 @@
+@page "/admin/invoices/{Id}"
+@* The old separate payment and history pages now land here too, so existing links still work. *@
+@page "/admin/invoices/{Id}/payment"
+@page "/admin/invoices/{Id}/history"
+@rendermode InteractiveServer
+@inject IInvoiceRepository InvoiceRepository
+@inject IInvoicePaymentRepository PaymentRepository
+@inject IScoutRepository ScoutRepository
+@inject IScoutAccountService ScoutAccountService
+@inject IFinanceAuditRepository AuditRepository
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IGuardianRepository GuardianRepository
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Invoice</PageTitle>
+
+<div class="page-header-row">
+    <h1>@(_canWrite && IsOutstanding ? "Edit Invoice" : "Invoice")</h1>
+    <a class="back-link" href="/admin/invoices"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to invoices</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_invoice is null)
+{
+    <div class="alert alert-danger">Invoice not found.</div>
+}
+else
+{
+    @if (Issued)
+    {
+        <div class="alert alert-success" id="issuedNotice">
+            Invoice issued to @_invoice.BilledTo: @_invoice.AmountDueFromFamily.ToString("C") for the family to pay.
+            @if (IsOutstanding && _familyGuardianId is not null)
+            {
+                <span>To send it home, use <strong>Print family bill</strong> below.</span>
+            }
+            <a href="/admin/invoices/new">Issue another invoice</a>
+        </div>
+    }
+
+    <div class="action-bar">
+        <a class="btn btn-ghost" target="_blank" rel="noopener" href="@($"/admin/invoices/{_invoice.InvoiceId}/print?scoutId={Uri.EscapeDataString(_invoice.OwnerId)}")"><i class="fa-solid fa-print" aria-hidden="true"></i>Print invoice</a>
+        @if (IsOutstanding && _familyGuardianId is not null)
+        {
+            <a class="btn btn-ghost" id="printFamilyInvoice" target="_blank" rel="noopener" title="Every outstanding invoice for this family on one sheet, to send home"
+               href="@($"/admin/invoices/family-payment/print?guardianId={Uri.EscapeDataString(_familyGuardianId)}")"><i class="fa-solid fa-print" aria-hidden="true"></i>Print family bill</a>
+        }
+        @if (_canWrite && IsOutstanding)
+        {
+            <a class="btn btn-ghost-danger" href="@($"/admin/invoices/{_invoice.InvoiceId}/void?scoutId={Uri.EscapeDataString(_invoice.OwnerId)}")"><i class="fa-solid fa-ban" aria-hidden="true"></i>Void invoice</a>
+        }
+    </div>
+
+    <div class="side-by-side">
+    <div class="card">
+        <h2>@_invoice.BilledTo — @_invoice.Description</h2>
+        @if (_invoice.IsForGuardian)
+        {
+            <p class="hint">Billed to an adult, not a scout.</p>
+        }
+        <p><strong>Status:</strong> <span class="badge badge-@_invoice.StatusValue.ToLowerInvariant()">@_invoice.StatusValue</span></p>
+        <p><strong>Issued:</strong> @_invoice.IssuedUtc.ToLocalTime().ToString("MMM d, yyyy")</p>
+        <p><strong>Due date:</strong> @(_invoice.DueDate?.UtcDateTime.ToString("MMM d, yyyy") ?? "—")</p>
+        @if (!_invoice.IsForGuardian)
+        {
+            <p><strong>Applied from account:</strong> @_invoice.AmountAppliedFromAccount.ToString("C")</p>
+        }
+        <p><strong>Remaining due:</strong> <span class="money">@_invoice.AmountDueFromFamily.ToString("C")</span></p>
+        <p><strong>Total:</strong> @_invoice.TotalAmount.ToString("C")</p>
+        @if (IsOutstanding && !_invoice.IsForGuardian)
+        {
+            <p><strong>Available scout funds:</strong> @_scoutBalance.ToString("C")</p>
+        }
+        @if (_message is not null)
+        {
+            <div class="alert alert-success">@_message</div>
+        }
+    </div>
+
+    @if (_canWrite && IsOutstanding)
+    {
+        <div class="card">
+            <h2>Record payment</h2>
+            <div class="field">
+                <label for="paymentAmount">Payment amount</label>
+                <input id="paymentAmount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+            </div>
+            <div class="field">
+                <label for="paymentMethod">Payment method</label>
+                <select id="paymentMethod" @bind="_method">
+                    @foreach (var method in InvoicePaymentMethod.External)
+                    {
+                        <option value="@method">@method</option>
+                    }
+                    @if (!_invoice.IsForGuardian)
+                    {
+                        <option value="@InvoicePaymentMethod.ScoutFunds">Scout funds</option>
+                    }
+                </select>
+            </div>
+            @if (_method != InvoicePaymentMethod.ScoutFunds)
+            {
+                <div class="field">
+                    <label for="reference">@InvoicePaymentMethod.ReferenceLabel(_method)</label>
+                    <input id="reference" type="text" @bind="_reference" @bind:event="oninput" placeholder="@InvoicePaymentMethod.ReferencePlaceholder(_method)" />
+                </div>
+            }
+            else
+            {
+                <p class="hint">This will debit the scout fund. Maximum available: @_scoutBalance.ToString("C").</p>
+            }
+            @if (_paymentError is not null)
+            {
+                <div class="alert alert-danger">@_paymentError</div>
+            }
+            <button class="btn btn-primary" disabled="@(!CanRecord || _saving)" @onclick="RecordPayment">Record payment</button>
+            <p class="hint" style="margin-top:0.75rem;margin-bottom:0;">
+                Paying several invoices at once? <a href="/admin/invoices/family-payment">Record a family payment</a>.
+            </p>
+        </div>
+    }
+    </div>
+
+    <div class="card">
+        <h2>Payment history</h2>
+        @if (_payments.Count == 0)
+        {
+            <p class="hint">No payments recorded.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Invoice payment history">
+            <table class="report-table">
+                <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Reference</th><th>Recorded by</th></tr></thead>
+                <tbody>
+                    @foreach (var payment in _payments)
+                    {
+                        <tr>
+                            <td>@payment.PaidUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td class="money">@payment.Amount.ToString("C")</td>
+                            <td>@payment.Method</td>
+                            <td>
+                                @(string.IsNullOrWhiteSpace(payment.Reference) ? "—" : payment.Reference)
+                                @if (!string.IsNullOrEmpty(payment.PaymentGroupId))
+                                {
+                                    <br /><span class="hint">Family payment (@payment.GroupTotal.ToString("C") total)</span>
+                                }
+                            </td>
+                            <td>@payment.RecordedBy</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Action history (@_history.Count)</h2>
+        @if (_history.Count == 0)
+        {
+            <p class="hint">No recorded actions yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Invoice action history">
+            <table class="report-table">
+                <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Details / note</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _history)
+                    {
+                        <tr>
+                            <td>@entry.OccurredUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@entry.Action</td>
+                            <td>@entry.Actor</td>
+                            <td><div class="cell-wrap cell-wrap-wide">@entry.Details @entry.Notes</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [SupplyParameterFromQuery]
+    private string? ScoutId { get; set; }
+
+    /// <summary>Arriving straight from Issue an Invoice: shows the confirmation.</summary>
+    [SupplyParameterFromQuery]
+    private bool Issued { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _message;
+    private string? _paymentError;
+    private InvoiceEntity? _invoice;
+    private IReadOnlyList<InvoicePaymentEntity> _payments = [];
+    private IReadOnlyList<FinanceAuditEntryEntity> _history = [];
+    private decimal _scoutBalance;
+
+    // The guardian whose combined family invoice this one appears on, if there is one.
+    private string? _familyGuardianId;
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _method = InvoicePaymentMethod.Check;
+    private string _reference = string.Empty;
+
+    private bool IsOutstanding => _invoice?.StatusValue == InvoiceStatus.Outstanding;
+
+    private bool CanRecord => _invoice is not null && _amount > 0 && _amount <= _invoice.AmountDueFromFamily &&
+        (_method != InvoicePaymentMethod.ScoutFunds || _amount <= _scoutBalance) &&
+        (!InvoicePaymentMethod.RequiresReference(_method) || !string.IsNullOrWhiteSpace(_reference));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _invoice = string.IsNullOrEmpty(ScoutId) ? null : await InvoiceRepository.GetByIdAsync(ScoutId, Id);
+        _invoice ??= await InvoiceRepository.GetByInvoiceIdAsync(Id);
+        if (_invoice is not null)
+        {
+            var scout = _invoice.IsForGuardian ? null : await ScoutRepository.GetByIdAsync(_invoice.ScoutId);
+            _scoutBalance = scout is null ? 0 : scout.CachedBalance;
+            _familyGuardianId = await FindFamilyGuardianIdAsync(_invoice);
+            _payments = await PaymentRepository.GetByInvoiceAsync(Id);
+            _history = await AuditRepository.GetForEntityAsync(FinanceAuditEntityType.Invoice, Id);
+            _amount = _invoice.AmountDueFromFamily;
+            _amountText = AmountInputParser.Format(_amount);
+        }
+        _loading = false;
+    }
+
+    /// <summary>The adult the invoice is billed to, or else the scout's first active guardian by name.</summary>
+    private async Task<string?> FindFamilyGuardianIdAsync(InvoiceEntity invoice)
+    {
+        if (invoice.IsForGuardian)
+        {
+            return invoice.GuardianId;
+        }
+
+        var guardians = new List<GuardianEntity>();
+        foreach (var link in await LinkRepository.GetGuardiansForScoutAsync(invoice.ScoutId))
+        {
+            if (await GuardianRepository.GetByIdAsync(link.GuardianId) is { IsActive: true } guardian)
+            {
+                guardians.Add(guardian);
+            }
+        }
+
+        return guardians.OrderBy(g => g.FullName).FirstOrDefault()?.GuardianId;
+    }
+
+    private async Task<string> CurrentUserNameAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        return authState?.User.Identity?.Name ?? "unknown";
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+
+    private async Task RecordPayment()
+    {
+        if (!_canWrite || _invoice is null || !CanRecord || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _paymentError = null;
+        _message = null;
+        try
+        {
+            var amount = _amount;
+            await ScoutAccountService.RecordInvoicePaymentAsync(
+                _invoice.OwnerId, _invoice.InvoiceId, amount, _method, _reference, await CurrentUserNameAsync());
+            _reference = string.Empty;
+            _message = $"Payment of {amount:C} recorded.";
+            await LoadAsync();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _paymentError = ex.Message;
+        }
+        catch (Exception)
+        {
+            _paymentError = "Couldn't record the payment. Please verify the amount and available funds.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

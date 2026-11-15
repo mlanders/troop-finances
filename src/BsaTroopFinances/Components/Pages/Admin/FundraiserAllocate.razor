@@ -1,0 +1,318 @@
+@page "/admin/fundraisers/{Id}/allocate"
+@rendermode InteractiveServer
+@inject IFundraiserEventRepository FundraiserRepository
+@inject IScoutRepository ScoutRepository
+@inject IScoutLedgerRepository LedgerRepository
+@inject IScoutAccountService ScoutAccountService
+@inject IFinanceAuditRepository AuditRepository
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Allocate Fundraiser Proceeds</PageTitle>
+
+<div class="page-header-row">
+    <h1>Allocate Proceeds</h1>
+    <a class="back-link" href="/admin/fundraisers"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to fundraisers</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_event is null)
+{
+    <div class="alert alert-danger">Fundraiser not found.</div>
+}
+else
+{
+    <div class="card">
+        <h2>@_event.Name</h2>
+        <p>@_event.EventDate.UtcDateTime.ToString("MMM d, yyyy")@(string.IsNullOrEmpty(_event.Description) ? "" : $" — {_event.Description}")</p>
+        <p><strong>Total proceeds:</strong> @(_event.TotalRaised?.ToString("C") ?? "Not set")</p>
+        <p><strong>Expenses:</strong> @((_event.TotalExpenses ?? 0).ToString("C"))</p>
+        <p><strong>Already allocated:</strong> @_allocatedTotal.ToString("C")</p>
+        <p><strong>Remaining:</strong> @_remaining.ToString("C")</p>
+
+        @if (_allocations.Count > 0)
+        {
+            <h3>Existing allocations</h3>
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Existing scout allocations">
+            <table class="report-table">
+                <thead><tr><th>Scout</th><th>Allocated</th><th>Hours tracked</th></tr></thead>
+                <tbody>
+                    @foreach (var allocation in _allocations)
+                    {
+                        <tr><td>@allocation.ScoutName</td><td class="money">@allocation.Amount.ToString("C")</td><td>@(allocation.HoursWorked?.ToString("0.##") ?? "—")</td></tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+
+        @if (_canWrite)
+        {
+            <div class="field">
+                <label for="splitMode">Split proceeds</label>
+                <select id="splitMode" @bind="_splitMode">
+                    <option value="Even">Evenly across selected scouts</option>
+                    <option value="Hours">Proportionally by hours worked</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label>Select scouts</label>
+                @foreach (var scout in _scouts)
+                {
+                    <div class="field-row">
+                        <label>
+                            <input type="checkbox" checked="@_selectedScoutIds.Contains(scout.ScoutId)" @onchange="e => ToggleScout(scout.ScoutId, e)" />
+                            @scout.FullName
+                        </label>
+                        @if (_splitMode == "Hours" && _selectedScoutIds.Contains(scout.ScoutId))
+                        {
+                            <input type="number" min="0.01" step="0.25" aria-label="Hours worked by @scout.FullName" placeholder="Hours" value="@GetHoursText(scout.ScoutId)" @oninput="e => SetHours(scout.ScoutId, e)" />
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="field">
+                <label for="amount">Total proceeds to allocate (up to @_remaining.ToString("C"))</label>
+                <input id="amount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+            </div>
+
+            @if (_splitPreview.Count > 0)
+            {
+                <p><strong>Split preview</strong></p>
+                <ul>
+                    @foreach (var share in _splitPreview)
+                    {
+                        <li>@share.Scout.FullName: <span class="money">@share.Amount.ToString("C")</span>@(share.Hours.HasValue ? $" ({share.Hours.Value:0.##} hours)" : string.Empty)</li>
+                    }
+                </ul>
+            }
+
+            <div class="field">
+                <label for="description">Note (optional)</label>
+                <input id="description" type="text" @bind="_description" placeholder="e.g. Popcorn sales share" />
+            </div>
+
+            @if (_message is not null)
+            {
+                <div class="alert alert-success">@_message</div>
+            }
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <button class="btn btn-primary" disabled="@(!CanSubmit || _saving)" @onclick="Allocate">Credit selected scouts</button>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Action history</h2>
+        @if (_history.Count == 0)
+        {
+            <p class="hint">No recorded actions yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Fundraiser action history">
+            <table class="report-table">
+                <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Details / note</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _history)
+                    {
+                        <tr>
+                            <td>@entry.OccurredUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@entry.Action</td>
+                            <td>@entry.Actor</td>
+                            <td><div class="cell-wrap cell-wrap-wide">@entry.Details @entry.Notes</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private string? _message;
+    private Data.Entities.FundraiserEventEntity? _event;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _description = string.Empty;
+    private string _splitMode = "Even";
+    private readonly HashSet<string> _selectedScoutIds = [];
+    private readonly Dictionary<string, decimal> _hoursWorked = [];
+    private readonly Dictionary<string, string> _hoursText = [];
+
+    private bool CanSubmit => SelectedScouts.Count > 0 && _amount > 0 && _amount <= _remaining &&
+        (_splitMode != "Hours" || SelectedScouts.All(s => _hoursWorked.GetValueOrDefault(s.ScoutId) > 0));
+    private IReadOnlyList<Data.Entities.ScoutEntity> SelectedScouts => _scouts.Where(s => _selectedScoutIds.Contains(s.ScoutId)).ToList();
+    private IReadOnlyList<(Data.Entities.ScoutEntity Scout, decimal Amount, decimal? Hours)> _splitPreview => CalculateShares();
+    private readonly List<(string ScoutName, decimal Amount, decimal? HoursWorked)> _allocations = [];
+    private IReadOnlyList<Data.Entities.FinanceAuditEntryEntity> _history = [];
+    private decimal _allocatedTotal;
+    private decimal _remaining;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        _event = await FundraiserRepository.GetByIdAsync(Id);
+        _scouts = await ScoutRepository.GetActiveAsync();
+        await LoadAllocationsAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAllocationsAsync()
+    {
+        if (_event is null)
+        {
+            return;
+        }
+
+        var scoutNames = _scouts.ToDictionary(s => s.ScoutId, s => s.FullName);
+        var entries = (await LedgerRepository.GetForSourceAsync(Data.Entities.LedgerSourceType.FundraiserAllocation, _event.EventId))
+            .GroupBy(e => e.PartitionKey)
+            .Select(group => (ScoutName: scoutNames.GetValueOrDefault(group.Key, group.Key),
+                Amount: group.Sum(e => e.Amount),
+                HoursWorked: group.Any(e => e.HoursWorked.HasValue)
+                    ? group.Sum(e => (decimal?)(e.HoursWorked ?? 0))
+                    : null))
+            .OrderBy(a => a.ScoutName)
+            .ToList();
+        _allocations.Clear();
+        _allocations.AddRange(entries);
+        _allocatedTotal = _allocations.Sum(a => a.Amount);
+        _remaining = Math.Max(0, _event.NetProceeds - _allocatedTotal);
+        _history = await AuditRepository.GetForEntityAsync(Data.Entities.FinanceAuditEntityType.Fundraiser, _event.EventId);
+    }
+
+    private async Task Allocate()
+    {
+        if (!_canWrite || !CanSubmit || _saving || _event is null)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        _message = null;
+        var completed = 0;
+        decimal amountAllocated = 0;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var createdBy = authState?.User.Identity?.Name ?? "unknown";
+            var shares = CalculateShares();
+            foreach (var share in shares)
+            {
+                var description = string.IsNullOrWhiteSpace(_description)
+                    ? $"{_event.Name} allocation"
+                    : _description.Trim();
+                await ScoutAccountService.ApplyFundraiserAllocationAsync(
+                    share.Scout.ScoutId, _event.EventId, share.Amount, description, createdBy, share.Hours);
+                completed++;
+                amountAllocated += share.Amount;
+            }
+
+            _message = $"Allocated {amountAllocated:C} across {completed} scouts.";
+            _amount = 0;
+            _amountText = "$0.00";
+            _description = string.Empty;
+            _selectedScoutIds.Clear();
+            _hoursWorked.Clear();
+            _hoursText.Clear();
+            await LoadAllocationsAsync();
+        }
+        catch (Exception)
+        {
+            _error = completed == 0
+                ? "Couldn't apply this allocation. Please check the proceeds remaining and try again."
+                : $"Allocated {amountAllocated:C} to {completed} scouts before an error. Review the allocations and remaining proceeds before retrying.";
+            await LoadAllocationsAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why
+        // (amount-input.js already keeps the caret in place; re-rendering the same value="..."
+        // text live would make Blazor reapply it via interop and reset the caret to the end).
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+
+    private void ToggleScout(string scoutId, ChangeEventArgs e)
+    {
+        if (bool.TryParse(e.Value?.ToString(), out var selected) && selected)
+        {
+            _selectedScoutIds.Add(scoutId);
+        }
+        else
+        {
+            _selectedScoutIds.Remove(scoutId);
+        }
+    }
+
+    private string GetHoursText(string scoutId) => _hoursText.GetValueOrDefault(scoutId, string.Empty);
+
+    private void SetHours(string scoutId, ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? string.Empty;
+        _hoursText[scoutId] = text;
+        if (decimal.TryParse(text, out var hours) && hours > 0)
+        {
+            _hoursWorked[scoutId] = hours;
+        }
+        else
+        {
+            _hoursWorked.Remove(scoutId);
+        }
+    }
+
+    private List<(Data.Entities.ScoutEntity Scout, decimal Amount, decimal? Hours)> CalculateShares()
+    {
+        var scouts = SelectedScouts.OrderBy(s => s.FullName).ToList();
+        if (scouts.Count == 0 || _amount <= 0)
+        {
+            return [];
+        }
+
+        var weights = scouts.Select(s => _splitMode == "Hours"
+            ? _hoursWorked.GetValueOrDefault(s.ScoutId)
+            : 1m).ToList();
+        return ShareSplitter.Split(scouts, weights, _amount, s => s.FullName)
+            .Select(share => (
+                Scout: share.Item,
+                share.Amount,
+                Hours: _splitMode == "Hours" ? _hoursWorked[share.Item.ScoutId] : (decimal?)null))
+            .ToList();
+    }
+}

@@ -1,0 +1,194 @@
+@page "/admin/invoices/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutRepository ScoutRepository
+@inject IGuardianRepository GuardianRepository
+@inject IScoutAccountService ScoutAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>New Invoice</PageTitle>
+
+<h1>Issue an Invoice</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="card">
+        <div class="field" role="group" aria-label="Who the invoice is for">
+            <span class="filter-label">Bill to</span>
+            <div class="choice-grid-compact" style="margin-top:0.35rem;">
+                <button type="button" id="billScout" class="choice-btn choice-btn-compact @(_forAdult ? "" : "selected")" @onclick="() => _forAdult = false">A scout</button>
+                <button type="button" id="billAdult" class="choice-btn choice-btn-compact @(_forAdult ? "selected" : "")" @onclick="() => _forAdult = true">An adult</button>
+            </div>
+        </div>
+
+        @if (_forAdult)
+        {
+            <div class="field">
+                <label for="guardian">Adult</label>
+                <select id="guardian" @bind="_guardianId">
+                    <option value="">-- Select a guardian --</option>
+                    @foreach (var guardian in _guardians)
+                    {
+                        <option value="@guardian.GuardianId">@guardian.FullName</option>
+                    }
+                </select>
+                <p class="hint">For an adult's own costs, such as their place at summer camp. Scout funds can't be used on it. An adult who isn't listed needs adding under Guardians first.</p>
+            </div>
+        }
+        else
+        {
+            <div class="field">
+                <label for="scout">Scout</label>
+                <select id="scout" @bind="_scoutId">
+                    <option value="">-- Select a scout --</option>
+                    @foreach (var scout in _scouts)
+                    {
+                        <option value="@scout.ScoutId">@scout.FullName (scout account @scout.CachedBalance.ToString("C"))</option>
+                    }
+                </select>
+            </div>
+        }
+
+        <div class="field">
+            <label for="description">Description</label>
+            <input id="description" type="text" @bind="_description" placeholder="e.g. Summer camp 2026" />
+        </div>
+
+        <div class="field">
+            <label for="totalAmount">Total amount</label>
+            <input id="totalAmount" data-money-input type="text" inputmode="decimal" value="@_totalAmountText" @oninput="e => SetAmount(e, true)" @onchange="e => CommitAmount(e, true)" />
+        </div>
+
+        <div class="field">
+            <label for="dueDate">Due date</label>
+            <input id="dueDate" type="date" @bind="_dueDate" />
+        </div>
+
+        @if (!_forAdult && SelectedScout is not null)
+        {
+            <div class="field">
+                <label for="applyFromAccount">Pay from @SelectedScout.FullName's scout account (has @SelectedScout.CachedBalance.ToString("C"))</label>
+                <div class="amount-edit-row">
+                    <input id="applyFromAccount" data-money-input type="text" inputmode="decimal" value="@_amountToApplyText" @oninput="e => SetAmount(e, false)" @onchange="e => CommitAmount(e, false)" />
+                    <button class="btn btn-secondary" type="button" disabled="@(MaxApplicable <= 0)" @onclick="UseAllFunds">Use all funds</button>
+                </div>
+                <p class="hint invoice-amount-due">Amount due from family: <span class="money">@AmountDue.ToString("C")</span></p>
+            </div>
+        }
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <button class="btn btn-primary btn-lg" disabled="@(!CanSubmit || _saving)" @onclick="Submit">Issue invoice</button>
+        <a class="btn btn-outline-danger" href="/admin/invoices">Cancel</a>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+    private IReadOnlyList<Data.Entities.GuardianEntity> _guardians = [];
+
+    /// <summary>Arriving from a guardian's menu: opens ready to bill that adult.</summary>
+    [SupplyParameterFromQuery]
+    private string? GuardianId { get; set; }
+
+    private bool _forAdult;
+    private string _guardianId = string.Empty;
+    private string _scoutId = string.Empty;
+    private string _description = string.Empty;
+    private decimal _totalAmount;
+    private decimal _amountToApply;
+    private string _totalAmountText = "$0.00";
+    private string _amountToApplyText = "$0.00";
+    private DateTime _dueDate = DateTime.Today.AddDays(14);
+
+    private Data.Entities.ScoutEntity? SelectedScout => _scouts.FirstOrDefault(s => s.ScoutId == _scoutId);
+
+    private decimal MaxApplicable => SelectedScout is null ? 0 : Math.Max(0, Math.Min(_totalAmount, SelectedScout.CachedBalance));
+
+    private decimal AmountDue => Math.Max(0, _totalAmount - Math.Clamp(_amountToApply, 0, MaxApplicable));
+
+    private bool CanSubmit =>
+        !string.IsNullOrEmpty(_forAdult ? _guardianId : _scoutId) && !string.IsNullOrWhiteSpace(_description) && _totalAmount > 0 && _dueDate != default;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _scouts = await ScoutRepository.GetActiveAsync();
+        _guardians = (await GuardianRepository.GetAllAsync()).Where(g => g.IsActive).OrderBy(g => g.FullName).ToList();
+        if (!string.IsNullOrEmpty(GuardianId) && _guardians.Any(g => g.GuardianId == GuardianId))
+        {
+            _forAdult = true;
+            _guardianId = GuardianId;
+        }
+        _loading = false;
+    }
+
+    private async Task Submit()
+    {
+        if (!CanSubmit || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var issuedBy = authState?.User.Identity?.Name ?? "unknown";
+
+            var dueDate = new DateTimeOffset(DateTime.SpecifyKind(_dueDate.Date, DateTimeKind.Unspecified), TimeSpan.Zero);
+            var invoice = _forAdult
+                ? await ScoutAccountService.IssueGuardianInvoiceAsync(_guardianId, _totalAmount, dueDate, _description.Trim(), issuedBy)
+                : await ScoutAccountService.IssueInvoiceAsync(_scoutId, _totalAmount, _amountToApply, dueDate, _description.Trim(), issuedBy);
+
+            // Land on the new invoice, where printing the family bill to send home is the next step.
+            Navigation.NavigateTo($"/admin/invoices/{invoice.InvoiceId}?scoutId={Uri.EscapeDataString(invoice.OwnerId)}&issued=true");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't issue this invoice. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e, bool total)
+    {
+        // Doesn't touch _totalAmountText/_amountToApplyText during typing -- see
+        // BulkInvoices.razor's SetAmount for why.
+        var text = e.Value?.ToString() ?? string.Empty;
+        if (total) { _totalAmount = AmountInputParser.Parse(text); }
+        else { _amountToApply = AmountInputParser.Parse(text); }
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e, bool total)
+    {
+        SetAmount(e, total);
+        if (total) _totalAmountText = AmountInputParser.Format(_totalAmount);
+        else _amountToApplyText = AmountInputParser.Format(_amountToApply);
+    }
+
+    private void UseAllFunds()
+    {
+        _amountToApply = MaxApplicable;
+        _amountToApplyText = AmountInputParser.Format(_amountToApply);
+    }
+}

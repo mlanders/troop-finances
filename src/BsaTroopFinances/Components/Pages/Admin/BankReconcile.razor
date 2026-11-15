@@ -1,0 +1,273 @@
+@page "/admin/bank/reconcile"
+@rendermode InteractiveServer
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Reconcile</PageTitle>
+
+<div class="page-header-row">
+    <h1>Reconcile</h1>
+    <p class="hint">Match an account to its bank statement: tick each entry the statement shows until the difference is $0.00. Reconciled entries are then locked.</p>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_accounts.Count == 0)
+{
+    <div class="alert alert-info">Add the troop&rsquo;s bank account first, on <a href="/admin/bank/accounts/new">Bank &rarr; Add an account</a>.</div>
+}
+else
+{
+    <div class="card">
+        <div class="field" style="margin-bottom:0;">
+            <label for="account">Account</label>
+            <select id="account" value="@_accountId" @onchange="ChangeAccountAsync">
+                @foreach (var account in _accounts)
+                {
+                    <option value="@account.AccountId">@account.Name</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    @if (_view is null)
+    {
+        @if (_canWrite)
+        {
+            <div class="card" id="startReconciliation">
+                <h2>Start with a statement</h2>
+                <div class="field">
+                    <label for="statementDate">Statement ending date</label>
+                    <input id="statementDate" type="date" @bind="_statementDate" />
+                </div>
+                <div class="field">
+                    <label for="statementBalance">Ending balance on the statement</label>
+                    <input id="statementBalance" data-money-input type="text" inputmode="decimal" value="@_balanceText" @oninput="SetBalance" @onchange="CommitBalance" />
+                </div>
+                <button class="btn btn-primary" disabled="@_saving" @onclick="StartAsync">Start reconciling</button>
+            </div>
+        }
+        else
+        {
+            <div class="card"><p>No reconciliation in progress for this account.</p></div>
+        }
+    }
+    else
+    {
+        var view = _view;
+        <div class="card" id="reconciliation">
+            <h2>Statement ending @view.Reconciliation.StatementDate.UtcDateTime.ToString("MMM d, yyyy")</h2>
+
+            <div class="reconcile-totals">
+                <div><span class="hint">Statement balance</span><strong class="money">@view.Reconciliation.StatementBalance.ToString("C")</strong></div>
+                <div><span class="hint">Cleared balance</span><strong class="money" id="clearedBalance">@view.ClearedBalance.ToString("C")</strong></div>
+                <div><span class="hint">Difference</span><strong class="money @(view.Difference == 0 ? "money-positive" : "money-negative")" id="difference">@view.Difference.ToString("C")</strong></div>
+            </div>
+
+            @if (view.Candidates.Count == 0)
+            {
+                <p>No entries dated on or before the statement date are waiting to clear.</p>
+            }
+            else
+            {
+                <div class="table-scroll" role="region" tabindex="0" aria-label="Entries to match">
+                <table class="report-table">
+                    <thead><tr><th>On statement</th><th>Date</th><th>Description</th><th>Ref.</th><th>Money in</th><th>Money out</th></tr></thead>
+                    <tbody>
+                        @foreach (var entry in view.Candidates)
+                        {
+                            <tr>
+                                <td>
+                                    <input type="checkbox" checked="@_ticked.Contains(entry.RowKey)" disabled="@(!_canWrite || _saving)"
+                                           @onchange="() => ToggleAsync(entry.RowKey)" aria-label="On the statement: @entry.Payee @entry.Description" />
+                                </td>
+                                <td>@entry.Date.UtcDateTime.ToString("MMM d, yyyy")</td>
+                                <td><div class="cell-wrap">@(entry.Payee.Length > 0 ? $"{entry.Payee} — " : "")@entry.Description</div></td>
+                                <td>@entry.Reference</td>
+                                <td class="money">@(entry.Amount > 0 ? entry.Amount.ToString("C") : "")</td>
+                                <td class="money money-negative">@(entry.Amount < 0 ? (-entry.Amount).ToString("C") : "")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+
+            <p class="hint" style="margin-top:0.75rem;">
+                Opening balance and earlier statements: @view.PreviouslyCleared.ToString("C"); ticked on this statement: @view.TickedTotal.ToString("C").
+                @if (view.Difference != 0)
+                {
+                    <span>If something on the statement isn&rsquo;t here, such as a bank fee or interest, <a href="@($"/admin/bank/entries/new?kind={Uri.EscapeDataString(TroopTransactionKind.BankFee)}&account={_accountId}")">add it to the register</a> first.</span>
+                }
+            </p>
+
+            @if (_canWrite)
+            {
+                <div class="row-actions">
+                    <button class="btn btn-primary" id="finish" disabled="@(view.Difference != 0 || _saving)" @onclick="FinishAsync">Finish reconciliation</button>
+                    <button class="btn btn-outline-danger" disabled="@_saving" @onclick="CancelAsync">Cancel this reconciliation</button>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="card">
+        <h2>Past reconciliations</h2>
+        @if (_history.Count == 0)
+        {
+            <p>None yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Past reconciliations">
+            <table class="report-table">
+                <thead><tr><th>Statement date</th><th>Ending balance</th><th>Finished</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var (reconciliation, index) in _history.Select((r, i) => (r, i)))
+                    {
+                        <tr>
+                            <td>@reconciliation.StatementDate.UtcDateTime.ToString("MMM d, yyyy")</td>
+                            <td class="money">@reconciliation.StatementBalance.ToString("C")</td>
+                            <td>@reconciliation.CompletedUtc?.ToLocalTime().ToString("MMM d, yyyy") by @reconciliation.CompletedBy</td>
+                            <td>
+                                @if (index == 0 && _canWrite && _view is null)
+                                {
+                                    <button class="btn btn-secondary btn-sm" disabled="@_saving" @onclick="ReopenAsync" title="Unlocks this statement's entries so they can be corrected">Reopen</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "account")]
+    private string? AccountQuery { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _canWrite;
+    private bool _saving;
+    private string? _error;
+    private IReadOnlyList<TroopAccountEntity> _accounts = [];
+    private string _accountId = "";
+    private ReconciliationView? _view;
+    private HashSet<string> _ticked = [];
+    private IReadOnlyList<ReconciliationEntity> _history = [];
+    private DateOnly _statementDate = DateOnly.FromDateTime(DateTime.Today);
+    private decimal _statementBalance;
+    private string _balanceText = "$0.00";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        _accounts = (await BankRepository.GetAccountsAsync()).Where(a => a.IsActive).ToList();
+        _accountId = _accounts.FirstOrDefault(a => a.AccountId == AccountQuery)?.AccountId
+            ?? _accounts.FirstOrDefault(a => a.Kind == TroopAccountKind.Bank)?.AccountId
+            ?? _accounts.FirstOrDefault()?.AccountId ?? "";
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _view = null;
+        _ticked = [];
+        if (string.IsNullOrEmpty(_accountId))
+        {
+            return;
+        }
+
+        var all = await BankRepository.GetReconciliationsAsync(_accountId);
+        _history = all.Where(r => r.Status == ReconciliationStatus.Complete).ToList();
+        if (all.FirstOrDefault(r => r.Status == ReconciliationStatus.InProgress) is { } current)
+        {
+            _view = await TroopAccountService.GetReconciliationAsync(_accountId, current.ReconciliationId);
+            _ticked = current.ClearedIds.ToHashSet();
+        }
+    }
+
+    private async Task<string> ActorAsync() =>
+        (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+
+    private async Task ChangeAccountAsync(ChangeEventArgs e)
+    {
+        _accountId = e.Value?.ToString() ?? "";
+        _error = null;
+        await LoadAsync();
+    }
+
+    private async Task RunAsync(Func<Task> work)
+    {
+        if (_saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            await work();
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private Task StartAsync() => RunAsync(async () =>
+        await TroopAccountService.StartReconciliationAsync(_accountId, _statementDate, _statementBalance, await ActorAsync()));
+
+    private Task ToggleAsync(string rowKey) => RunAsync(async () =>
+    {
+        if (!_ticked.Remove(rowKey))
+        {
+            _ticked.Add(rowKey);
+        }
+
+        await TroopAccountService.SetClearedAsync(_accountId, _view!.Reconciliation.ReconciliationId, _ticked);
+    });
+
+    private Task FinishAsync() => RunAsync(async () =>
+        await TroopAccountService.FinishReconciliationAsync(_accountId, _view!.Reconciliation.ReconciliationId, await ActorAsync()));
+
+    private Task CancelAsync() => RunAsync(async () =>
+        await TroopAccountService.CancelReconciliationAsync(_accountId, _view!.Reconciliation.ReconciliationId, await ActorAsync()));
+
+    private Task ReopenAsync() => RunAsync(async () =>
+        await TroopAccountService.ReopenLastReconciliationAsync(_accountId, await ActorAsync()));
+
+    private void SetBalance(ChangeEventArgs e)
+    {
+        // Doesn't touch _balanceText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _statementBalance = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitBalance(ChangeEventArgs e)
+    {
+        SetBalance(e);
+        _balanceText = AmountInputParser.Format(_statementBalance);
+    }
+}

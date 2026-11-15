@@ -1,0 +1,150 @@
+@page "/admin/fundraisers/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IFundraiserEventRepository FundraiserRepository
+@inject IFinanceAuditRepository AuditRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Create a Fundraiser</PageTitle>
+
+<h1>Create a Fundraiser</h1>
+
+<div class="card">
+    <div class="field">
+        <label for="name">Name</label>
+        <input id="name" type="text" @bind="_newName" placeholder="e.g. Popcorn Sale 2026" />
+    </div>
+    <div class="field">
+        <label for="date">Event date</label>
+        <input id="date" type="date" @bind="_newDate" />
+    </div>
+    <div class="field">
+        <label for="description">Description</label>
+        <input id="description" type="text" @bind="_newDescription" />
+    </div>
+    <div class="field">
+        <label for="totalRaised">Total raised</label>
+        <input id="totalRaised" data-money-input type="text" inputmode="decimal" value="@_totalRaisedText" @oninput="SetTotalRaised" @onchange="CommitTotalRaised" />
+    </div>
+    <div class="field">
+        <label for="totalExpenses">Fundraiser expenses (optional)</label>
+        <input id="totalExpenses" data-money-input type="text" inputmode="decimal" value="@_totalExpensesText" @oninput="SetTotalExpenses" @onchange="CommitTotalExpenses" />
+    </div>
+    <div class="field">
+        <label for="goal">Fundraising goal (optional)</label>
+        <input id="goal" data-money-input type="text" inputmode="decimal" value="@_goalText" @oninput="SetGoal" @onchange="CommitGoal" />
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <button class="btn btn-primary" disabled="@(string.IsNullOrWhiteSpace(_newName) || _creating)" @onclick="CreateEvent">Create</button>
+    <a class="btn btn-outline-danger" href="/admin/fundraisers">Cancel</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _creating;
+    private string? _error;
+
+    private string _newName = string.Empty;
+    private DateOnly _newDate = DateOnly.FromDateTime(DateTime.Today);
+    private string _newDescription = string.Empty;
+    private decimal? _newTotalRaised;
+    private string _totalRaisedText = "$0.00";
+    private decimal? _newTotalExpenses;
+    private string _totalExpensesText = "$0.00";
+    private decimal? _newGoal;
+    private string _goalText = "$0.00";
+
+    private async Task CreateEvent()
+    {
+        if (string.IsNullOrWhiteSpace(_newName) || _creating)
+        {
+            return;
+        }
+
+        _creating = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var createdBy = authState?.User.Identity?.Name ?? "unknown";
+
+            var evt = new Data.Entities.FundraiserEventEntity
+            {
+                PartitionKey = Data.Entities.FundraiserEventEntity.PartitionKeyValue,
+                RowKey = Data.Entities.FundraiserEventEntity.NewRowKey(),
+                Name = _newName.Trim(),
+                // A calendar date, not a moment: stored as midnight UTC and displayed from its UTC date.
+                EventDate = new DateTimeOffset(_newDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero),
+                Description = _newDescription.Trim(),
+                TotalRaised = _newTotalRaised.HasValue ? _newTotalRaised.Value : null,
+                TotalExpenses = _newTotalExpenses.HasValue ? _newTotalExpenses.Value : null,
+                GoalAmount = _newGoal.HasValue ? _newGoal.Value : null,
+                StatusValue = FundraiserEventStatus.Open,
+                CreatedUtc = DateTimeOffset.UtcNow,
+                CreatedBy = createdBy,
+            };
+
+            await FundraiserRepository.AddAsync(evt);
+            await AuditRepository.AddAsync(FinanceAuditEntityType.Fundraiser, evt.EventId, "Created", createdBy,
+                details: $"Fundraiser created: {evt.Name}; raised {(evt.TotalRaised.HasValue ? (evt.TotalRaised.Value).ToString("C") : "not set")}; expenses {(evt.TotalExpenses.HasValue ? (evt.TotalExpenses.Value).ToString("C") : "not set")}; goal {(evt.GoalAmount.HasValue ? (evt.GoalAmount.Value).ToString("C") : "not set")}.");
+
+            Navigation.NavigateTo("/admin/fundraisers");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't create this fundraiser. Please try again.";
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private void SetTotalRaised(ChangeEventArgs e)
+    {
+        // Doesn't touch _totalRaisedText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _newTotalRaised = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitTotalRaised(ChangeEventArgs e)
+    {
+        SetTotalRaised(e);
+        _totalRaisedText = AmountInputParser.Format(_newTotalRaised ?? 0);
+    }
+
+    private void SetTotalExpenses(ChangeEventArgs e)
+    {
+        // Doesn't touch _totalExpensesText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _newTotalExpenses = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitTotalExpenses(ChangeEventArgs e)
+    {
+        SetTotalExpenses(e);
+        _totalExpensesText = AmountInputParser.Format(_newTotalExpenses ?? 0);
+    }
+
+    private void SetGoal(ChangeEventArgs e)
+    {
+        // Doesn't touch _goalText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _newGoal = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitGoal(ChangeEventArgs e)
+    {
+        SetGoal(e);
+        _goalText = AmountInputParser.Format(_newGoal ?? 0);
+    }
+}

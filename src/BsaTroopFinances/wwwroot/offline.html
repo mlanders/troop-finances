@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#003f87" />
+    <title>Offline</title>
+    <style>
+        :root { color-scheme: light; }
+        html, body { margin: 0; height: 100%; }
+        body {
+            display: flex; align-items: center; justify-content: center;
+            padding: max(1.5rem, env(safe-area-inset-top)) 1rem max(1.5rem, env(safe-area-inset-bottom));
+            box-sizing: border-box;
+            background: #f4f6fb; color: #1f2a37;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .card {
+            max-width: 26rem; width: 100%; text-align: center;
+            background: #fff; border-radius: 12px; padding: 2rem 1.5rem;
+            border-top: 4px solid #fcb711; box-shadow: 0 2px 12px rgba(7, 37, 74, 0.08);
+        }
+        h1 { color: #003f87; font-size: 1.4rem; margin: 1rem 0 0.5rem; }
+        p { color: #57677a; line-height: 1.5; margin: 0 0 1.5rem; }
+        button {
+            font: inherit; font-weight: 700; color: #fff; background: #003f87;
+            border: 0; border-radius: 6px; min-height: 44px; padding: 0.65rem 1.5rem; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <img src="/favicon.svg" alt="" width="56" height="56" />
+        <h1>You're offline</h1>
+        <p>This site needs an internet connection. Check your signal or Wi-Fi, then try again.</p>
+        <button type="button" onclick="location.reload()">Try again</button>
+    </div>
+    <script>window.addEventListener('online', () => location.reload());</script>
+</body>
+</html>

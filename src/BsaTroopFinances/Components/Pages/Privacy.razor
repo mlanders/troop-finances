@@ -1,0 +1,117 @@
+@page "/privacy"
+@inject TroopInfo Troop
+
+@* Public: linked from every public page's footer and from the Google sign-in consent screen.
+   Keep it in step with what the app actually stores (Data/Entities) and who it shares with
+   (Azure hosting, Azure Communication Services email, Microsoft/Google sign-in). *@
+
+<PageTitle>Privacy Policy - @Troop.AppName</PageTitle>
+
+<article class="card legal">
+    <h1>Privacy Policy</h1>
+    <p class="legal-updated">Last updated: October 30, 2026</p>
+
+    <p>@Troop.AppName (the "site", at @Troop.SiteHost) is run by volunteers of @Troop.Name,
+        a Scouts BSA troop, to keep track of troop money: reimbursement receipts, scout accounts,
+        invoices, fundraisers and donations. This policy explains what information the site keeps, why, and
+        what you can ask us to do with it. The site is run by the troop, not by Scouting America.</p>
+
+    <h2>Information we keep</h2>
+    <p><strong>Parents and guardians</strong></p>
+    <ul>
+        <li>Your name and email address, added by a troop leader so you can sign in.</li>
+        <li>Which scouts you're linked to.</li>
+        <li>Reimbursement requests you submit: the amount, description, and the receipt image or
+            PDF you upload.</li>
+        <li>Invoices billed to your family and payments recorded against them.</li>
+    </ul>
+    <p><strong>Scouts</strong></p>
+    <ul>
+        <li>Name, rank and patrol, and the scout's account balance and history (fundraiser
+            credits, invoices and adjustments). This is entered by troop leaders. Scouts do not
+            have accounts and do not sign in.</li>
+    </ul>
+    <p><strong>Adult leaders</strong> who sign in to the admin area</p>
+    <ul>
+        <li>Your name, email address and the account identifier Microsoft or Google provides when
+            you sign in with them, when you signed in, and the access level you've been given.</li>
+        <li>A record of changes you make, such as approving a reimbursement or issuing an invoice.</li>
+    </ul>
+    <p><strong>Donors</strong></p>
+    <ul>
+        <li>Your name, the gift's amount (or a description and estimated value for donated goods),
+            how and when it was given, and anything you asked it to be used for. If you choose, also
+            an email or mailing address so we can thank you. A troop leader enters this when your
+            gift arrives.</li>
+        <li>If you ask to stay anonymous, families never see your name: a gift credited to a
+            scout's account shows as "Anonymous donation".</li>
+    </ul>
+    <p><strong>For everyone</strong></p>
+    <ul>
+        <li><strong>Sign-in codes:</strong> stored only in scrambled (hashed) form, valid for 10
+            minutes, and deleted once used or expired.</li>
+        <li><strong>Email log:</strong> for each email the site sends, who it went to, the subject,
+            when, and whether it was delivered. The contents of emails are not kept.</li>
+        <li><strong>Technical logs:</strong> our hosting provider may record standard technical
+            details such as IP address and browser type to keep the site running and secure.</li>
+    </ul>
+
+    <h2>How we use it</h2>
+    <p>Only to run the troop's finances: letting you sign in, handling reimbursements and
+        invoices, keeping scout accounts, recording and acknowledging donations, and sending the emails described on the site (sign-in
+        codes, receipt and invoice notices, and access notices to leaders). We don't sell your
+        information, show ads, or use it for marketing.</p>
+
+    <h2>Cookies</h2>
+    <p>The site uses only the cookies it needs to work: one that keeps you signed in (12 hours
+        for parents, 8 hours for leaders) and security cookies that protect forms. There are no
+        analytics, advertising or tracking cookies.</p>
+
+    <h2>Signing in with Microsoft or Google</h2>
+    <p>Adult leaders can sign in with a Microsoft or Google account. When you do, the site receives
+        your name, email address and an account identifier. It never sees your password and
+        doesn't get access to your email, files or contacts. Signing in on its own grants nothing:
+        a troop administrator has to give you access first.</p>
+
+    <h2>Who can see it</h2>
+    <ul>
+        <li><strong>Troop leaders</strong> given access to the admin area can see the troop's
+            financial records. Parents and guardians see only their own requests, their family's
+            invoices and their linked scouts' accounts.</li>
+        <li><strong>Service providers</strong> that run the site for us: Microsoft Azure (hosting,
+            database, file storage and email delivery), and Microsoft or Google when you choose to
+            sign in with them. They handle the information only to provide those services.</li>
+        <li><strong>When required by law</strong>, or to protect the troop, its members or the
+            site.</li>
+    </ul>
+
+    <h2>Where it's stored and how long</h2>
+    <p>Everything is stored in Microsoft Azure data centers in the United States. We keep
+        financial records for as long as the troop needs them for its accounting. Nightly
+        backups are kept for 14 days. Sign-in codes last 10 minutes.</p>
+
+    <h2>How we protect it</h2>
+    <p>The site is served only over encrypted connections (HTTPS), and Azure encrypts stored data.
+        Receipts are never publicly reachable: every download checks who is asking. Admin access
+        is limited to leaders an administrator has approved, with read-only or edit roles.</p>
+
+    <h2>Your choices</h2>
+    <p>You can ask to see, correct or delete the information we hold about you or your scout by
+        emailing <a href="mailto:@Troop.ContactEmail">@Troop.ContactEmail</a>. We'll respond
+        within a reasonable time. Some financial records, such as completed reimbursements and
+        payments, may need to be kept for the troop's accounting even after you leave the troop.</p>
+
+    <h2>Children</h2>
+    <p>The site is for adults. Children can't create accounts or sign in. Information about
+        scouts is entered by troop leaders and is used only to manage their troop accounts. A
+        parent or guardian can ask to review or correct their scout's information at any time.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If we change this policy, we'll update the date at the top of this page. Significant
+        changes will also be shared with families through the troop's usual channels.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy or your information: <a href="mailto:@Troop.ContactEmail">@Troop.ContactEmail</a>.</p>
+
+    <p class="legal-links"><a href="/terms">Terms of Service</a> &middot; <a href="/">Back to @Troop.AppName</a></p>
+</article>

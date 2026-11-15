@@ -1,0 +1,130 @@
+@page "/admin/bank/deposits/{Id}"
+@rendermode InteractiveServer
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Deposit</PageTitle>
+
+<div class="page-header-row">
+    <h1>Deposit@(_deposit is null ? "" : $" of {_deposit.Date.UtcDateTime:MMM d, yyyy}")</h1>
+    <a class="back-link" href="/admin/bank/deposits"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to deposits</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_deposit is null)
+{
+    <div class="alert alert-danger">Deposit not found. It may have been deleted, which puts its items back on the waiting list.</div>
+}
+else
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" id="printDeposit" target="_blank" rel="noopener" href="@($"/admin/bank/deposits/{Id}/print")"><i class="fa-solid fa-print" aria-hidden="true"></i>Print deposit record</a>
+        <a class="btn btn-ghost" href="@($"/admin/bank/accounts/{_deposit.AccountId}")"><i class="fa-solid fa-building-columns" aria-hidden="true"></i>View @(_account?.Name ?? "account")</a>
+        @if (_canWrite && !_cleared)
+        {
+            <button class="btn btn-ghost-danger" @onclick="() => _confirmDelete = true"><i class="fa-solid fa-trash" aria-hidden="true"></i>Delete deposit</button>
+        }
+    </div>
+
+    @if (_confirmDelete)
+    {
+        <div class="alert alert-danger">
+            <strong>Delete this deposit? Its payments and donations will wait to be deposited again.</strong>
+            <div class="row-actions" style="margin-top:0.5rem;">
+                <button class="btn btn-danger btn-sm" disabled="@_saving" @onclick="DeleteAsync">Confirm delete</button>
+                <button class="btn btn-outline-danger btn-sm" disabled="@_saving" @onclick="() => _confirmDelete = false">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <div class="card">
+        <p>
+            <strong>@_deposit.Total.ToString("C")</strong> into @(_account?.Name ?? "an account") &mdash;
+            checks @_deposit.CheckTotal.ToString("C"), cash @_deposit.CashTotal.ToString("C")@(_deposit.OtherTotal > 0 ? $", other {_deposit.OtherTotal:C}" : "").
+        </p>
+        <p class="hint">
+            Recorded by @_deposit.CreatedBy@(_deposit.CashTotal > 0 ? $"; cash counted by {_deposit.CountedBy1} and {_deposit.CountedBy2}" : "").
+            @(_cleared ? "Cleared on a reconciled bank statement." : "Not yet on a reconciled bank statement.")
+        </p>
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Deposit items">
+        <table class="report-table">
+            <thead><tr><th>From</th><th>For</th><th>How</th><th>Reference</th><th>Amount</th></tr></thead>
+            <tbody>
+                @foreach (var line in _lines)
+                {
+                    <tr>
+                        <td>@line.Payer</td>
+                        <td><div class="cell-wrap">@line.Description</div></td>
+                        <td>@line.Method</td>
+                        <td>@line.Reference</td>
+                        <td class="money">@line.Amount.ToString("C")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _canWrite;
+    private bool _saving;
+    private bool _cleared;
+    private bool _confirmDelete;
+    private string? _error;
+    private DepositEntity? _deposit;
+    private TroopAccountEntity? _account;
+    private IReadOnlyList<DepositLineEntity> _lines = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        _deposit = await BankRepository.GetDepositAsync(Id);
+        if (_deposit is not null)
+        {
+            _account = await BankRepository.GetAccountAsync(_deposit.AccountId);
+            _lines = await BankRepository.GetDepositLinesAsync(Id);
+            _cleared = (await BankRepository.GetTransactionAsync(_deposit.AccountId, _deposit.TransactionRowKey))?.IsCleared == true;
+        }
+
+        _loading = false;
+    }
+
+    private async Task DeleteAsync()
+    {
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+            await TroopAccountService.DeleteDepositAsync(Id, actor);
+            Navigation.NavigateTo("/admin/bank/deposits");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            _confirmDelete = false;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

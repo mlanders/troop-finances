@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "troop-finances"
+    },
+    "storageAccountName": {
+      "value": "<globally unique, lowercase letters and digits, e.g. troop52finstor>"
+    },
+    "backupStorageAccountName": {
+      "value": "<globally unique, e.g. troop52finbak>"
+    },
+    "webAppName": {
+      "value": "<globally unique, e.g. Troop52Finances>"
+    },
+    "location": {
+      "value": "westus3"
+    },
+    "appServicePlanSku": {
+      "value": "B1"
+    },
+    "useExistingAppServicePlan": {
+      "value": false
+    },
+    "existingAppServicePlanName": {
+      "value": ""
+    },
+    "existingAppServicePlanResourceGroup": {
+      "value": ""
+    },
+    "emailSenderDomain": {
+      "value": "<your domain, e.g. troop52.org>"
+    },
+    "linkEmailDomain": {
+      "value": false
+    },
+    "sqlServerName": {
+      "value": "<globally unique, e.g. troop52-finances-sql>"
+    },
+    "sqlEntraAdminLogin": {
+      "value": "<your Microsoft Entra sign-in, e.g. you@example.org>"
+    },
+    "sqlEntraAdminObjectId": {
+      "value": "<your Entra object id: az ad signed-in-user show --query id -o tsv>"
+    }
+  }
+}

@@ -1,0 +1,221 @@
+@page "/admin/donations"
+@rendermode InteractiveServer
+@inject IDonationRepository DonationRepository
+@inject IScoutLedgerRepository LedgerRepository
+@inject IDonationService DonationService
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Donations</PageTitle>
+
+<h1>Donations</h1>
+
+@if (_canWrite)
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" href="/admin/donations/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Record a donation</a>
+    </div>
+}
+
+@if (!_loading)
+{
+    <div class="stat-grid">
+        <div class="card stat-card stat-card-green">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-hand-holding-heart" aria-hidden="true"></i></span>
+                <h3>Received in @ThisYear</h3>
+            </div>
+            <p class="stat-card-number money">@YearDonations.Sum(d => d.Amount).ToString("C")</p>
+            <p class="hint">@YearDonations.Count() gift@(YearDonations.Count() == 1 ? "" : "s")@(YearDonations.Any(d => d.IsInKind) ? $", including {YearDonations.Where(d => d.IsInKind).Sum(d => d.Amount):C} in goods" : "")</p>
+        </div>
+        <div class="card stat-card stat-card-gold">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-envelope" aria-hidden="true"></i></span>
+                <h3>Thank-yous owed</h3>
+            </div>
+            <p class="stat-card-number">@_donations.Count(d => d.NeedsAcknowledgment)</p>
+            <p class="hint">@_donations.Count(d => d.NeedsAcknowledgment && d.Amount >= DonationEntity.AcknowledgmentThreshold) of @DonationEntity.AcknowledgmentThreshold.ToString("C0") or more</p>
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="filter-bar">
+        <div class="filter-group" role="group" aria-label="Donation filter">
+            <span class="filter-label">Show</span>
+            <div class="choice-grid-compact">
+                <button class="choice-btn choice-btn-compact @(_filter == Filter.All ? "selected" : "")" @onclick="() => _filter = Filter.All">All</button>
+                <button class="choice-btn choice-btn-compact @(_filter == Filter.NeedsThankYou ? "selected" : "")" @onclick="() => _filter = Filter.NeedsThankYou">Needs thank-you</button>
+                <button class="choice-btn choice-btn-compact @(_filter == Filter.Restricted ? "selected" : "")" @onclick="() => _filter = Filter.Restricted">Restricted</button>
+            </div>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (!Displayed.Any())
+    {
+        <p>@(_donations.Count == 0 ? "No donations recorded yet." : "No donations here.")</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Donation list">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Received</th>
+                    <th>From</th>
+                    <th>Amount</th>
+                    <th>How</th>
+                    <th>For</th>
+                    <th>Credited to scouts</th>
+                    <th>Thank-you</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var donation in Displayed)
+                {
+                    var credited = _credited.GetValueOrDefault(donation.DonationId);
+                    <tr>
+                        <td>@donation.ReceivedDate.UtcDateTime.ToString("MMM d, yyyy")</td>
+                        <td>
+                            <a href="@($"/admin/donations/{donation.DonationId}")">@donation.DonorName</a>
+                            @if (donation.IsAnonymous)
+                            {
+                                <span class="badge badge-approved" style="margin-left:0.35rem;" title="Families see this gift as anonymous">Anonymous</span>
+                            }
+                        </td>
+                        <td class="money">@donation.Amount.ToString("C")</td>
+                        <td>@(donation.IsInKind ? "Goods" : donation.Method)</td>
+                        <td><div class="cell-wrap">@(donation.IsRestricted ? donation.Purpose : "General use")</div></td>
+                        <td class="money">@(donation.IsInKind ? "—" : credited.ToString("C"))</td>
+                        <td>
+                            @if (!donation.NeedsAcknowledgment)
+                            {
+                                <span class="badge badge-paid">Sent</span>
+                            }
+                            else if (donation.Amount >= DonationEntity.AcknowledgmentThreshold)
+                            {
+                                <span class="badge badge-rejected" title="Gifts of @DonationEntity.AcknowledgmentThreshold.ToString("C0") or more usually need a written acknowledgment">Needed</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-pending">Needed</span>
+                            }
+                        </td>
+                        <td>
+                            <div class="ellipsis-menu">
+                                <input type="checkbox" id="@($"donationMenu-{donation.DonationId}")" class="ellipsis-menu-check" />
+                                <label for="@($"donationMenu-{donation.DonationId}")" class="ellipsis-menu-toggle" aria-label="More actions for the gift from @donation.DonorName">
+                                    <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                </label>
+                                <div class="ellipsis-menu-panel">
+                                    <a class="ellipsis-menu-item" href="@($"/admin/donations/{donation.DonationId}")">
+                                        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                                        Details
+                                    </a>
+                                    <a class="ellipsis-menu-item" href="@($"/admin/donations/{donation.DonationId}/thank-you-letter")" download>
+                                        <i class="fa-solid fa-file-word" aria-hidden="true"></i>
+                                        Thank-you letter
+                                    </a>
+                                    @if (_canWrite)
+                                    {
+                                        @if (!donation.IsInKind && credited < donation.Amount)
+                                        {
+                                            <a class="ellipsis-menu-item" href="@($"/admin/donations/{donation.DonationId}/credit")">
+                                                <i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i>
+                                                Credit to scouts
+                                            </a>
+                                        }
+                                        @if (donation.NeedsAcknowledgment)
+                                        {
+                                            <button type="button" class="ellipsis-menu-item" disabled="@_saving" @onclick="() => MarkThankYouSentAsync(donation)">
+                                                <i class="fa-solid fa-envelope-circle-check" aria-hidden="true"></i>
+                                                Mark thank-you sent
+                                            </button>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    private enum Filter { All, NeedsThankYou, Restricted }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private Filter _filter = Filter.All;
+    private IReadOnlyList<DonationEntity> _donations = [];
+    private IReadOnlyDictionary<string, decimal> _credited = new Dictionary<string, decimal>();
+
+    private static int ThisYear => DateTime.Today.Year;
+
+    private IEnumerable<DonationEntity> YearDonations => _donations.Where(d => d.ReceivedDate.UtcDateTime.Year == ThisYear);
+
+    private IEnumerable<DonationEntity> Displayed => _filter switch
+    {
+        Filter.NeedsThankYou => _donations.Where(d => d.NeedsAcknowledgment),
+        Filter.Restricted => _donations.Where(d => d.IsRestricted),
+        _ => _donations,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _donations = await DonationRepository.GetAllAsync();
+        _credited = await LedgerRepository.GetTotalsBySourceAsync(
+            LedgerSourceType.Donation, _donations.Select(d => d.DonationId).ToList());
+        _loading = false;
+    }
+
+    private async Task MarkThankYouSentAsync(DonationEntity donation)
+    {
+        if (!_canWrite || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            await DonationService.SetAcknowledgedAsync(donation.DonationId, true, authState?.User.Identity?.Name ?? "unknown");
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't update the thank-you. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

@@ -1,0 +1,81 @@
+@page "/terms"
+@inject TroopInfo Troop
+
+@* Public: linked from every public page's footer and from the Google sign-in consent screen. *@
+
+<PageTitle>Terms of Service - @Troop.AppName</PageTitle>
+
+<article class="card legal">
+    <h1>Terms of Service</h1>
+    <p class="legal-updated">Last updated: October 29, 2026</p>
+
+    <p>These terms cover your use of @Troop.AppName (the "site", at @Troop.SiteHost). By
+        signing in or using the site, you agree to them. If you don't agree, please don't use the
+        site.</p>
+
+    <h2>Who runs the site</h2>
+    <p>The site is run by volunteers of @Troop.Name, a Scouts BSA troop ("the troop", "we"). It is
+        not operated or endorsed by Scouting America. Our <a href="/privacy">Privacy Policy</a>
+        explains how we handle your information.</p>
+
+    <h2>Who can use it</h2>
+    <ul>
+        <li><strong>Parents and guardians</strong> whose email address a troop leader has added.
+            You sign in with a one-time code sent to that address.</li>
+        <li><strong>Adult leaders</strong> whom a troop administrator has given access. You sign in
+            with a Microsoft or Google account, and you can see or change only what your access
+            level allows.</li>
+    </ul>
+    <p>You must be at least 18 to use the site. Scouts do not have accounts.</p>
+
+    <h2>Your account</h2>
+    <p>Keep your email account and any Microsoft or Google account you use secure, and don't share
+        sign-in codes. You're responsible for what's done when you're signed in. Tell us right away
+        at <a href="mailto:@Troop.ContactEmail">@Troop.ContactEmail</a> if you think someone
+        else has used your access.</p>
+
+    <h2>Reimbursements, invoices and payments</h2>
+    <ul>
+        <li>Reimbursement requests must be for real troop expenses, with genuine receipts and
+            accurate amounts. Whether a request is approved follows the troop's own policies and is
+            up to the troop.</li>
+        <li>The site keeps records only. It does not take or send money: payments happen outside
+            the site, and a leader records them afterwards.</li>
+        <li>We work to keep balances, invoices and records accurate, but mistakes can happen. If
+            something looks wrong, contact the troop treasurer and we'll look into it.</li>
+    </ul>
+
+    <h2>Adult leaders</h2>
+    <p>If you have access to the admin area, use it only for troop business, keep families' and
+        scouts' information confidential, and follow the troop's financial policies. Administrators
+        may change or remove access at any time.</p>
+
+    <h2>Acceptable use</h2>
+    <p>Don't misuse the site: no trying to reach information you haven't been given access to,
+        interfering with how it works, uploading harmful files, or using it for anything unlawful.</p>
+
+    <h2>Ending access</h2>
+    <p>The troop may suspend or remove anyone's access, for example when a family leaves the troop
+        or these terms aren't followed. Records may be kept as described in the Privacy Policy.</p>
+
+    <h2>No warranty</h2>
+    <p>The site is provided by volunteers "as is" and "as available", without warranties of any
+        kind. We don't promise it will always be available or error-free.</p>
+
+    <h2>Limitation of liability</h2>
+    <p>To the extent the law allows, the troop and its volunteers are not liable for indirect or
+        consequential losses arising from use of the site, or for losses caused by circumstances
+        beyond our reasonable control.</p>
+
+    <h2>Changes to these terms</h2>
+    <p>We may update these terms. When we do, we'll change the date at the top of this page.
+        Continuing to use the site after a change means you accept the updated terms.</p>
+
+    <h2>Governing law</h2>
+    <p>These terms are governed by the laws of the State of California.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about these terms: <a href="mailto:@Troop.ContactEmail">@Troop.ContactEmail</a>.</p>
+
+    <p class="legal-links"><a href="/privacy">Privacy Policy</a> &middot; <a href="/">Back to @Troop.AppName</a></p>
+</article>

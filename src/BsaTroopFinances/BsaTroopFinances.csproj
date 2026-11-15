@@ -1,0 +1,51 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>31bf8a17-2a5f-4f1b-a56f-a15c458e6db1</UserSecretsId>
+    <!-- Workstation garbage collection: Server GC is built for many-core machines handling heavy
+         traffic and holds on to far more memory. This app serves a handful of people at a time on
+         one or two cores, so workstation GC lets it fit in a small (512 MB to 1 GB) plan on any host. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.1.0" />
+    <PackageReference Include="Azure.Communication.Email" Version="1.1.0" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.1" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageReference Include="MailKit" Version="5.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.15" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.15" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.15" />
+    <PackageReference Include="Microsoft.Identity.Web" Version="4.18.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="PDFtoImage" Version="5.4.0" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
+    <PackageReference Include="QuestPDF" Version="2026.9.2" />
+  </ItemGroup>
+
+  <!-- If `dotnet publish -o ./publish` (or similar) is ever run with a relative path from this
+       project directory, the output lands nested inside the project itself. The SDK's default
+       item globs sweep up everything under the project except bin/obj, so without this exclusion
+       that nested output gets treated as source content, notably re-discovering wwwroot's
+       *.razor.js files with no matching component at that path, which fails the build with
+       BLAZOR106. Always publish to a directory outside the project (e.g. via $env:TEMP) instead;
+       this is just a safety net if that ever slips. -->
+  <ItemGroup>
+    <Compile Remove="publish/**" />
+    <Content Remove="publish/**" />
+    <None Remove="publish/**" />
+    <EmbeddedResource Remove="publish/**" />
+  </ItemGroup>
+
+</Project>

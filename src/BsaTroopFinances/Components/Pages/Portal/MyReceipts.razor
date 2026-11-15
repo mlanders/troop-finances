@@ -1,0 +1,154 @@
+@page "/portal/receipts"
+@inject IReimbursementRequestRepository RequestRepository
+@using BsaTroopFinances.Data.Repositories
+@using System.Globalization
+
+<PageTitle>My Receipts</PageTitle>
+
+<h1>My Receipts</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (CountFor(All) == 0)
+{
+    <div class="alert alert-info">
+        You haven't submitted any receipts yet. <a href="/portal/receipts/new">Submit one</a>.
+    </div>
+}
+else
+{
+    @* Links, not buttons: this page has no live connection, so the choice travels in the address. *@
+    <div class="filter-bar">
+        <div class="filter-group" role="group" aria-label="Status filter">
+            <span class="filter-label">Status</span>
+            <div class="choice-grid-compact">
+                @foreach (var status in Statuses)
+                {
+                    <a class="choice-btn choice-btn-compact @(status == Filter ? "selected" : "")" aria-current="@(status == Filter ? "true" : null)"
+                       href="@Link(status, 1)">@status (@CountFor(status))</a>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_requests.Count == 0)
+    {
+        <p>No @Filter.ToLowerInvariant() receipts.</p>
+    }
+
+    @foreach (var request in _requests)
+    {
+        <div class="card">
+            <div class="reimbursement-summary">
+                <div class="reimbursement-summary-details">
+                    <p>
+                        <span class="money">@request.AmountRequested.ToString("C2", CultureInfo.GetCultureInfo("en-US"))</span>
+                        &mdash; @request.Description
+                        <span class="badge badge-@request.StatusValue.ToLowerInvariant()" style="margin-left:0.5rem;">@request.StatusValue</span>
+                    </p>
+                    @if (request.ScoutName is not null)
+                    {
+                        <p class="hint">For @request.ScoutName</p>
+                    }
+                    <p class="hint">Submitted @request.SubmittedUtc.ToLocalTime().ToString("MMM d, yyyy")@(request.SubmittedOnBehalfBy is null ? "" : " -- entered by the treasurer on your behalf")</p>
+                    @if (request.StatusValue == ReimbursementStatus.Rejected && !string.IsNullOrEmpty(request.ReviewNotes))
+                    {
+                        <p class="hint">Reason: @request.ReviewNotes</p>
+                    }
+                    @if (request.StatusValue == ReimbursementStatus.Pending)
+                    {
+                        <form method="post" action="@($"/portal/receipts/{request.RequestId}/delete")" class="receipt-delete-form"
+                              onsubmit="return confirm('Delete this pending receipt permanently? This cannot be undone.');">
+                            <AntiforgeryToken />
+                            <button type="submit" class="btn btn-danger">Delete receipt</button>
+                        </form>
+                    }
+                </div>
+
+                <a class="receipt-preview" href="@($"/portal/reimbursements/{request.RequestId}/receipt")" target="_blank" rel="noopener" title="View receipt" aria-label="View receipt">
+                    <img src="@($"/portal/reimbursements/{request.RequestId}/thumbnail")" alt="Receipt preview" loading="lazy" width="213" height="213" />
+                    <span class="receipt-preview-label">View receipt</span>
+                </a>
+            </div>
+        </div>
+    }
+
+    @if (TotalPages > 1)
+    {
+        <nav class="row-actions" aria-label="Receipt pages">
+            @if (_page > 1)
+            {
+                <a class="btn btn-secondary" href="@Link(Filter, _page - 1)">Newer</a>
+            }
+            <span class="hint">Page @_page of @TotalPages (@CountFor(Filter) receipts)</span>
+            @if (_page < TotalPages)
+            {
+                <a class="btn btn-secondary" href="@Link(Filter, _page + 1)">Older</a>
+            }
+        </nav>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private const string All = "All";
+
+    private static readonly string[] Statuses =
+        [ReimbursementStatus.Pending, ReimbursementStatus.Approved, ReimbursementStatus.Paid, ReimbursementStatus.Rejected, All];
+
+    [SupplyParameterFromQuery]
+    private string? Status { get; set; }
+
+    [SupplyParameterFromQuery]
+    private int? Page { get; set; }
+
+    private const int PageSize = 10;
+
+    private bool _loading = true;
+    private int _page = 1;
+    private IReadOnlyDictionary<string, int> _counts = new Dictionary<string, int>();
+
+    // The receipts on this page only; the counts on the buttons come from the database separately.
+    private IReadOnlyList<Data.Entities.ReimbursementRequestEntity> _requests = [];
+
+    // Pending unless the address names another status.
+    private string Filter => Statuses.FirstOrDefault(s => string.Equals(s, Status, StringComparison.OrdinalIgnoreCase)) ?? ReimbursementStatus.Pending;
+
+    private int CountFor(string status) => status == All ? _counts.Values.Sum() : _counts.GetValueOrDefault(status);
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(CountFor(Filter) / (double)PageSize));
+
+    private static string Link(string status, int page)
+    {
+        var query = new List<string>();
+        if (status != ReimbursementStatus.Pending)
+        {
+            query.Add($"status={status}");
+        }
+        if (page > 1)
+        {
+            query.Add($"page={page}");
+        }
+        return query.Count == 0 ? "/portal/receipts" : $"/portal/receipts?{string.Join('&', query)}";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        var guardianId = authState?.User.FindFirst("GuardianId")?.Value;
+
+        if (guardianId is not null)
+        {
+            _counts = await RequestRepository.GetSubmitterStatusCountsAsync(guardianId);
+            // A page number past the end (an old link, or the last receipt on a page was deleted) shows the last page.
+            _page = Math.Clamp(Page ?? 1, 1, TotalPages);
+            _requests = (await RequestRepository.GetSubmitterPageAsync(guardianId, Filter == All ? null : Filter, _page, PageSize)).Items;
+        }
+
+        _loading = false;
+    }
+}

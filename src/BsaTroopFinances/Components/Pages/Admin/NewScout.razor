@@ -1,0 +1,66 @@
+@page "/admin/scouts/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutRepository ScoutRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Add a Scout</PageTitle>
+
+<h1>Add a Scout</h1>
+
+<div class="card">
+    <div class="field">
+        <label for="name">Full name</label>
+        <input id="name" type="text" @bind="_newName" placeholder="Full name" />
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <button class="btn btn-primary" disabled="@(string.IsNullOrWhiteSpace(_newName) || _adding)" @onclick="AddScout">Add to roster</button>
+    <a class="btn btn-outline-danger" href="/admin/scouts">Cancel</a>
+</div>
+
+@code {
+    private bool _adding;
+    private string? _error;
+    private string _newName = string.Empty;
+
+    private async Task AddScout()
+    {
+        if (string.IsNullOrWhiteSpace(_newName) || _adding)
+        {
+            return;
+        }
+
+        _adding = true;
+        _error = null;
+        try
+        {
+            var scout = new Data.Entities.ScoutEntity
+            {
+                PartitionKey = Data.Entities.ScoutEntity.PartitionKeyValue,
+                RowKey = Data.Entities.ScoutEntity.NewRowKey(),
+                FullName = _newName.Trim(),
+                IsActive = true,
+                CreatedUtc = DateTimeOffset.UtcNow,
+                CachedBalance = 0,
+                BalanceUpdatedUtc = DateTimeOffset.UtcNow,
+            };
+
+            await ScoutRepository.AddAsync(scout);
+            Navigation.NavigateTo("/admin/scouts");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't add this scout. Please try again.";
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+}

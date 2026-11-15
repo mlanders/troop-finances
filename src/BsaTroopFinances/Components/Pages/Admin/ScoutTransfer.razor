@@ -1,0 +1,137 @@
+@page "/admin/scouts/{Id}/transfer"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutAccountService ScoutAccountService
+@inject Data.Repositories.IScoutRepository ScoutRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Services
+
+<PageTitle>Transfer Funds</PageTitle>
+
+<h1>Transfer Funds</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_statement is null)
+{
+    <div class="alert alert-danger">Scout not found.</div>
+}
+else
+{
+    <div class="card">
+        <p><strong>@_statement.Scout.FullName</strong> &mdash; current balance:
+            <span class="money @(_statement.Scout.CachedBalance < 0 ? "money-negative" : "money-positive")">@_statement.Scout.CachedBalance.ToString("C")</span>
+        </p>
+        <p class="hint">Move money off this scout&rsquo;s account: to another scout, such as a sibling, or to
+            the troop general fund, where it stops being held for scouts and becomes free to spend.
+            A reason is required.</p>
+        <div class="field">
+            <label for="transferTo">Move to</label>
+            <select id="transferTo" @bind="_to">
+                <option value="@GeneralFundValue">The troop general fund</option>
+                @foreach (var other in _otherScouts)
+                {
+                    <option value="@other.ScoutId">@other.FullName</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="transferAmount">Amount (up to @_statement.Scout.CachedBalance.ToString("C"))</label>
+            <input id="transferAmount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+        </div>
+        <div class="field">
+            <label for="transferReason">Reason</label>
+            <input id="transferReason" type="text" @bind="_reason" @bind:event="oninput" placeholder="Required" />
+        </div>
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        <button class="btn btn-primary" disabled="@(!CanTransfer || _transferring)" @onclick="TransferAsync">Transfer funds</button>
+        <a class="btn btn-outline-danger" href="@($"/admin/scouts/{Id}")">Cancel</a>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private const string GeneralFundValue = "general";
+
+    private bool _loading = true;
+    private bool _transferring;
+    private string? _error;
+    private Models.ScoutStatementModel? _statement;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _otherScouts = [];
+
+    private string _to = GeneralFundValue;
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _reason = string.Empty;
+
+    private bool CanTransfer => _statement is not null && _amount > 0
+        && _amount <= _statement.Scout.CachedBalance && !string.IsNullOrWhiteSpace(_reason);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _statement = await ScoutAccountService.GetScoutStatementAsync(Id);
+        _otherScouts = (await ScoutRepository.GetActiveAsync())
+            .Where(s => s.ScoutId != Id)
+            .OrderBy(s => s.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (_statement is not null)
+        {
+            // Usually the whole balance moves; it can be lowered.
+            _amount = Math.Max(0, _statement.Scout.CachedBalance);
+            _amountText = AmountInputParser.Format(_amount);
+        }
+
+        _loading = false;
+    }
+
+    private async Task TransferAsync()
+    {
+        if (!CanTransfer || _transferring)
+        {
+            return;
+        }
+
+        _transferring = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var to = _to == GeneralFundValue ? BalanceDestination.GeneralFund : BalanceDestination.ToScout(_to);
+            await ScoutAccountService.TransferBalanceAsync(Id, to, _amount, _reason, authState?.User.Identity?.Name ?? "unknown");
+            Navigation.NavigateTo($"/admin/scouts/{Id}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            _transferring = false;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't transfer the funds. Please try again.";
+            _transferring = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+}

@@ -1,0 +1,68 @@
+@inject TroopInfo Troop
+@* Layout for everything under /portal. Applied via Components/Pages/Portal/_Imports.razor
+   ([Authorize(Policy="ParentOnly")] + @layout PortalLayout). On a phone the three links become
+   an app-style tab bar along the bottom of the screen (see PortalLayout.razor.css). *@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<div class="portal-shell">
+    <header class="portal-header">
+        <a class="portal-brand" href="/portal">@Troop.AppName</a>
+        <nav class="portal-nav" aria-label="Portal">
+            @foreach (var tab in Tabs)
+            {
+                var current = tab == _current;
+                <a href="@tab.Href" class="@(current ? "active" : null)" aria-current="@(current ? "page" : null)">
+                    <i class="fa-solid @tab.Icon" aria-hidden="true"></i>
+                    <span class="portal-nav-label">@tab.Label</span>
+                    <span class="portal-nav-short" aria-hidden="true">@tab.Short</span>
+                </a>
+            }
+        </nav>
+        <AuthorizeView Context="authContext">
+            <Authorized>
+                @* The name doubles as the way into Sign-in options (authenticator app), keeping the
+                   phone tab bar to three tabs. *@
+                <a class="portal-user" href="/portal/sign-in-options" title="Sign-in options">
+                    <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
+                    @authContext.User.FindFirst("FullName")?.Value
+                </a>
+                <form method="post" action="/portal/logout">
+                    <button type="submit" class="portal-signout">Sign out</button>
+                </form>
+            </Authorized>
+        </AuthorizeView>
+    </header>
+
+    <main class="portal-main">
+        <InstallPrompt />
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private sealed record PortalTab(string Href, string Label, string Short, string Icon);
+
+    private static readonly PortalTab MyScouts = new("/portal", "My Scouts", "Scouts", "fa-people-roof");
+    private static readonly PortalTab Submit = new("/portal/receipts/new", "Submit a Receipt", "Submit", "fa-receipt");
+    private static readonly PortalTab Receipts = new("/portal/receipts", "My Receipts", "Receipts", "fa-rectangle-list");
+    private static readonly PortalTab[] Tabs = [MyScouts, Submit, Receipts];
+
+    private PortalTab? _current;
+
+    // NavLink's prefix matching would light "My Scouts" (/portal) on every page and "My Receipts"
+    // on Submit (/portal/receipts/new), so pick the one tab explicitly.
+    protected override void OnParametersSet()
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].TrimEnd('/');
+        _current = path.Equals(Submit.Href, StringComparison.OrdinalIgnoreCase) ? Submit
+            : path.StartsWith(Receipts.Href, StringComparison.OrdinalIgnoreCase) ? Receipts
+            : MyScouts;
+    }
+}

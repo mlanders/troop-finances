@@ -1,0 +1,414 @@
+@page "/admin/scouts/{Id}"
+@rendermode InteractiveServer
+@inject IScoutAccountService ScoutAccountService
+@inject Data.Repositories.IScoutRepository ScoutRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Services
+
+<PageTitle>Scout Statement</PageTitle>
+
+<div class="page-header-row">
+    <h1>Scout Statement</h1>
+    <a class="back-link" href="/admin/scouts"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to scouts</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_statement is null)
+{
+    <div class="alert alert-danger">Scout not found.</div>
+}
+else
+{
+    @if (_canWrite)
+    {
+        <div class="action-bar">
+            <a class="btn btn-ghost" href="@($"/admin/scouts/{Id}/rename")"><i class="fa-solid fa-pen" aria-hidden="true"></i>Change name</a>
+            <a class="btn btn-ghost" href="@($"/admin/scouts/{Id}/adjust")"><i class="fa-solid fa-sliders" aria-hidden="true"></i>Manual adjustment</a>
+            <a class="btn btn-ghost" href="@($"/admin/invoices/family-payment?scoutId={Uri.EscapeDataString(Id)}")"><i class="fa-solid fa-money-check-dollar" aria-hidden="true"></i>Record family payment</a>
+            @if (_statement.Scout.CachedBalance > 0)
+            {
+                <a class="btn btn-ghost" href="@($"/admin/scouts/{Id}/transfer")"><i class="fa-solid fa-right-left" aria-hidden="true"></i>Transfer funds</a>
+            }
+            @if (_statement.Scout.IsActive)
+            {
+                <button class="btn btn-ghost" disabled="@_changingActive" @onclick="StartDeactivate"><i class="fa-solid fa-user-slash" aria-hidden="true"></i>Deactivate scout</button>
+            }
+            else
+            {
+                <button class="btn btn-ghost" disabled="@_changingActive" @onclick="ReactivateAsync"><i class="fa-solid fa-user-check" aria-hidden="true"></i>Reactivate scout</button>
+            }
+            <button class="btn btn-ghost-danger" disabled="@(!CanDelete || _deleting)" title="@(CanDelete ? null : "Has invoice or ledger activity, so this scout can't be deleted.")" @onclick="StartDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i>Delete scout</button>
+        </div>
+    }
+
+    @if (_confirmingDeactivate)
+    {
+        var balance = _statement.Scout.CachedBalance;
+        var unpaid = _statement.Invoices.Where(i => i.StatusValue == InvoiceStatus.Outstanding).ToList();
+        <div class="alert alert-info" id="deactivatePanel">
+            <strong>Deactivate @_statement.Scout.FullName?</strong> They'll drop off the active roster and
+            can't be picked for new invoices or fundraiser shares. Their history stays, and they can be reactivated.
+            @if (unpaid.Count > 0)
+            {
+                <p style="margin:0.5rem 0 0;">They still have @unpaid.Count unpaid invoice@(unpaid.Count == 1 ? "" : "s")
+                    (@unpaid.Sum(i => i.AmountDueFromFamily).ToString("C") due). Those stay open.</p>
+            }
+            @if (balance < 0)
+            {
+                <p style="margin:0.5rem 0 0;">Their balance is <span class="money-negative">@balance.ToString("C")</span>; it stays on the account.</p>
+            }
+            else if (balance > 0)
+            {
+                <div class="field" style="margin-top:0.75rem;">
+                    <label for="deactivateMoveTo">What happens to their @balance.ToString("C")?</label>
+                    <select id="deactivateMoveTo" @bind="_moveTo">
+                        <option value="@KeepOnAccount">Leave it on their account</option>
+                        <option value="@GeneralFundValue">Move it to the troop general fund</option>
+                        @foreach (var other in _otherScouts)
+                        {
+                            <option value="@other.ScoutId">Move it to @other.FullName</option>
+                        }
+                    </select>
+                </div>
+                @if (_moveTo != KeepOnAccount)
+                {
+                    <div class="field">
+                        <label for="deactivateReason">Reason</label>
+                        <input id="deactivateReason" type="text" @bind="_moveReason" @bind:event="oninput" placeholder="e.g. Aged out; family asked to move it to their sibling" />
+                    </div>
+                }
+            }
+            @if (_activeError is not null)
+            {
+                <p class="money-negative" style="margin:0.5rem 0 0;">@_activeError</p>
+            }
+            <div class="row-actions" style="margin-top:0.5rem;">
+                <button class="btn btn-primary btn-sm" disabled="@(_changingActive || (balance > 0 && _moveTo != KeepOnAccount && string.IsNullOrWhiteSpace(_moveReason)))" @onclick="ConfirmDeactivateAsync">Deactivate</button>
+                <button class="btn btn-secondary btn-sm" disabled="@_changingActive" @onclick="CancelDeactivate">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @if (_confirmingDelete)
+    {
+        <div class="alert alert-danger">
+            <strong>Permanently delete @_statement.Scout.FullName? This can't be undone.</strong>
+            @if (_deleteError is not null)
+            {
+                <p style="margin:0.5rem 0 0;">@_deleteError</p>
+            }
+            <div class="row-actions" style="margin-top:0.5rem;">
+                <button class="btn btn-danger btn-sm" disabled="@_deleting" @onclick="ConfirmDelete">Confirm delete</button>
+                <button class="btn btn-outline-danger btn-sm" disabled="@_deleting" @onclick="CancelDelete">Cancel</button>
+            </div>
+        </div>
+    }
+
+    var scout = _statement.Scout;
+    var unpaidInvoices = Unpaid.ToList();
+    var owed = unpaidInvoices.Sum(i => i.AmountDueFromFamily);
+    <h2>
+        @scout.FullName
+        @if (!scout.IsActive)
+        {
+            <span class="badge badge-voided">Inactive</span>
+        }
+    </h2>
+
+    @* Two different things, kept apart: money the troop holds for the scout, and what the family
+       still has to pay on invoices. *@
+    <div class="stat-grid" id="summary">
+        <div class="card stat-card @(scout.CachedBalance < 0 ? "stat-card-red" : "stat-card-green")" id="accountCard">
+            <h3>In Scout Account</h3>
+            <p class="stat-card-number money @(scout.CachedBalance < 0 ? "money-negative" : "")">@scout.CachedBalance.ToString("C")</p>
+            <p class="hint">@(scout.CachedBalance < 0
+                ? $"Overdrawn: {scout.FullName}'s account owes the troop this."
+                : $"Money the troop holds for {FirstName}; it can pay their invoices.")</p>
+        </div>
+        <div class="card stat-card @(owed > 0 ? "stat-card-red" : "stat-card-navy")" id="owedCard">
+            <h3>Family Owes</h3>
+            <p class="stat-card-number money">@owed.ToString("C")</p>
+            <p class="hint">@(unpaidInvoices.Count == 0 ? "Nothing owed" : $"{unpaidInvoices.Count} unpaid invoice{(unpaidInvoices.Count == 1 ? "" : "s")}")</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Invoices</h2>
+        @if (_statement.Invoices.Count == 0)
+        {
+            <p>No invoices yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scout invoices">
+            <table class="report-table">
+                <thead>
+                    <tr>
+                        <th>Issued</th>
+                        <th>Description</th>
+                        <th>Total</th>
+                        <th>Paid from scout account</th>
+                        <th>Still owed</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @* Unpaid first, then the rest; newest first within each. *@
+                    @foreach (var invoice in _statement.Invoices
+                        .OrderBy(i => i.StatusValue == InvoiceStatus.Outstanding ? 0 : 1)
+                        .ThenByDescending(i => i.IssuedUtc))
+                    {
+                        var isUnpaid = invoice.StatusValue == InvoiceStatus.Outstanding;
+                        <tr>
+                            <td>@invoice.IssuedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td><a href="@($"/admin/invoices/{invoice.InvoiceId}?scoutId={Uri.EscapeDataString(invoice.OwnerId)}")">@invoice.Description</a></td>
+                            <td class="money">@invoice.TotalAmount.ToString("C")</td>
+                            <td class="money">@(invoice.AmountAppliedFromAccount > 0 ? invoice.AmountAppliedFromAccount.ToString("C") : "—")</td>
+                            <td class="money @(isUnpaid && invoice.AmountDueFromFamily > 0 ? "money-negative" : "")">@(isUnpaid ? invoice.AmountDueFromFamily.ToString("C") : "—")</td>
+                            <td><span class="badge badge-@invoice.StatusValue.ToLowerInvariant()">@invoice.StatusValue</span></td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="4">Total still owed</td>
+                        <td class="money @(owed > 0 ? "money-negative" : "")">@owed.ToString("C")</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Scout account activity</h2>
+        <p class="hint">Money in and out of @FirstName&rsquo;s scout account. Invoices the family pays directly don&rsquo;t appear here.</p>
+        @if (_statement.LedgerEntries.Count == 0)
+        {
+            <p>No activity yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scout account activity">
+            <table class="report-table" id="activity">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>In / out</th>
+                        <th>Balance</th>
+                        <th>Description</th>
+                        <th>By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var (entry, balanceAfter) in WithRunningBalance().Reverse())
+                    {
+                        <tr>
+                            <td>@entry.CreatedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td>@LedgerSourceType.DisplayName(entry.SourceTypeValue)</td>
+                            @if (entry.SourceTypeValue == LedgerSourceType.NameChange)
+                            {
+                                <td class="money">&mdash;</td>
+                            }
+                            else
+                            {
+                                <td class="money @(entry.EntryTypeValue == LedgerEntryType.Credit ? "money-positive" : "money-negative")">
+                                    @(entry.EntryTypeValue == LedgerEntryType.Credit ? "+" : "-")@entry.Amount.ToString("C")
+                                </td>
+                            }
+                            <td class="money @(balanceAfter < 0 ? "money-negative" : "")">@balanceAfter.ToString("C")</td>
+                            @if (entry.SourceTypeValue == LedgerSourceType.Donation)
+                            {
+                                <td><a href="@($"/admin/donations/{entry.SourceId}")">@entry.Description</a></td>
+                            }
+                            else if (entry.SourceTypeValue is LedgerSourceType.InvoiceApplied or LedgerSourceType.InvoicePayment or LedgerSourceType.InvoiceVoidReversal
+                                && !string.IsNullOrEmpty(entry.SourceId))
+                            {
+                                <td><a href="@($"/admin/invoices/{entry.SourceId}?scoutId={Uri.EscapeDataString(Id)}")">@entry.Description</a></td>
+                            }
+                            else
+                            {
+                                <td>@entry.Description</td>
+                            }
+                            <td>@entry.CreatedBy</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _confirmingDelete;
+    private bool _deleting;
+    private string? _deleteError;
+    private Models.ScoutStatementModel? _statement;
+
+    private string FirstName => _statement?.Scout.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+
+    /// <summary>What the family still owes: the same rule as the Families page and the portal.</summary>
+    private IEnumerable<InvoiceEntity> Unpaid =>
+        _statement?.Invoices.Where(i => i.StatusValue == InvoiceStatus.Outstanding) ?? [];
+
+    /// <summary>Each ledger entry, oldest first, with the account balance just after it.</summary>
+    private IEnumerable<(ScoutLedgerEntryEntity Entry, decimal BalanceAfter)> WithRunningBalance()
+    {
+        var balance = 0m;
+        return (_statement?.LedgerEntries ?? []).OrderBy(e => e.RowKey)
+            .Select(e => (e, balance += e.SignedAmount))
+            .ToList();
+    }
+
+    private bool CanDelete => _statement is not null && _statement.Invoices.Count == 0 && _statement.LedgerEntries.Count == 0;
+
+    /// <summary>Set by the Scouts list's Deactivate for a scout with money on their account, so
+    /// this page opens straight on the choice of what to do with it.</summary>
+    [SupplyParameterFromQuery(Name = "deactivate")]
+    private bool OpenDeactivate { get; set; }
+
+    private const string KeepOnAccount = "keep";
+    private const string GeneralFundValue = "general";
+
+    private bool _confirmingDeactivate;
+    private bool _changingActive;
+    private string? _activeError;
+    private string _moveTo = KeepOnAccount;
+    private string _moveReason = string.Empty;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _otherScouts = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+        if (OpenDeactivate)
+        {
+            await StartDeactivate();
+        }
+    }
+
+    private async Task StartDeactivate()
+    {
+        if (!_canWrite || _statement is not { Scout.IsActive: true })
+        {
+            return;
+        }
+
+        _otherScouts = (await ScoutRepository.GetActiveAsync())
+            .Where(s => s.ScoutId != Id)
+            .OrderBy(s => s.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        _moveTo = KeepOnAccount;
+        _moveReason = string.Empty;
+        _activeError = null;
+        _confirmingDelete = false;
+        _confirmingDeactivate = true;
+    }
+
+    private void CancelDeactivate() => _confirmingDeactivate = false;
+
+    private async Task ConfirmDeactivateAsync()
+    {
+        if (!_canWrite || _changingActive || _statement is null)
+        {
+            return;
+        }
+
+        var moveTo = _statement.Scout.CachedBalance <= 0 ? null : _moveTo switch
+        {
+            KeepOnAccount => null,
+            GeneralFundValue => BalanceDestination.GeneralFund,
+            var scoutId => BalanceDestination.ToScout(scoutId),
+        };
+        await ChangeActiveAsync(by => ScoutAccountService.DeactivateAsync(Id, moveTo, _moveReason, by));
+        _confirmingDeactivate = _activeError is not null;
+    }
+
+    private Task ReactivateAsync() => ChangeActiveAsync(by => ScoutAccountService.ReactivateAsync(Id, by));
+
+    private async Task ChangeActiveAsync(Func<string, Task> change)
+    {
+        _changingActive = true;
+        _activeError = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            await change(authState?.User.Identity?.Name ?? "unknown");
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _activeError = ex.Message;
+        }
+        catch (Exception)
+        {
+            _activeError = "Couldn't save that change. Please reload the page and try again.";
+        }
+        finally
+        {
+            _changingActive = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _statement = await ScoutAccountService.GetScoutStatementAsync(Id);
+        _loading = false;
+    }
+
+    private void StartDelete()
+    {
+        if (!_canWrite || !CanDelete)
+        {
+            return;
+        }
+
+        _deleteError = null;
+        _confirmingDelete = true;
+    }
+
+    private void CancelDelete()
+    {
+        _confirmingDelete = false;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (!_canWrite || !CanDelete || _deleting)
+        {
+            return;
+        }
+
+        _deleting = true;
+        _deleteError = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var deletedBy = authState?.User.Identity?.Name ?? "unknown";
+
+            await ScoutAccountService.DeleteScoutAsync(Id, deletedBy);
+            Navigation.NavigateTo("/admin/scouts");
+        }
+        catch (Exception ex)
+        {
+            _deleteError = ex.Message;
+            _deleting = false;
+        }
+    }
+}

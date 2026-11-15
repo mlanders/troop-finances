@@ -1,0 +1,431 @@
+@page "/admin/invoices/family-payment"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IGuardianRepository GuardianRepository
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IInvoiceRepository InvoiceRepository
+@inject IScoutRepository ScoutRepository
+@inject IScoutAccountService ScoutAccountService
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Record Family Payment</PageTitle>
+
+<div class="page-header-row">
+    <h1>Record Family Payment</h1>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    @if (_message is not null)
+    {
+        <div class="alert alert-success">@_message</div>
+    }
+
+    @if (_notice is not null)
+    {
+        <div class="alert alert-info">@_notice</div>
+    }
+
+    <div class="card">
+        <p class="hint" style="margin-top:0;">
+            One payment (check, cash, Venmo or other) covering several invoices. Pick the guardian, tick the invoices it pays,
+            and adjust any amount that's only partly paid. Part or all of a scout's invoice can come from that scout's own
+            scout account instead.
+        </p>
+
+        @if (_families.Count == 0)
+        {
+            <p>No families have outstanding invoices.</p>
+        }
+        else
+        {
+            <div class="field">
+                <label for="guardian">Guardian</label>
+                <select id="guardian" @bind="_guardianId" @bind:after="GuardianChanged">
+                    <option value="">Choose a guardian&hellip;</option>
+                    @foreach (var family in _families)
+                    {
+                        <option value="@family.GuardianId">@family.Name (@family.Invoices.Count outstanding, @family.Invoices.Sum(i => i.AmountDueFromFamily).ToString("C"))</option>
+                    }
+                </select>
+            </div>
+        }
+    </div>
+
+    @if (_lines.Count > 0)
+    {
+        <div class="card">
+            <div class="section-header">
+                <h2 class="section-header-title">Outstanding invoices</h2>
+                @if (_balances.Values.Any(b => b > 0))
+                {
+                    <button type="button" class="btn btn-ghost" id="useScoutFunds" @onclick="UseScoutFundsFirst">
+                        <i class="fa-solid fa-wallet" aria-hidden="true"></i>Use scout funds first
+                    </button>
+                }
+            </div>
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Outstanding invoices for this family">
+            <table class="report-table">
+                <thead>
+                    <tr><th>Pay</th><th>For</th><th>Description</th><th>Due date</th><th>Amount due</th><th>From scout account</th><th>Family pays</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in _lines)
+                    {
+                        <tr>
+                            <td>
+                                <input type="checkbox" checked="@line.Selected" @onchange="() => Toggle(line)"
+                                       aria-label="Pay @line.Invoice.BilledTo's invoice @line.Invoice.Description" />
+                            </td>
+                            <td>@line.Invoice.BilledTo</td>
+                            <td>@line.Invoice.Description</td>
+                            <td>@(line.Invoice.DueDate?.UtcDateTime.ToString("MMM d, yyyy") ?? "—")</td>
+                            <td class="money">@line.Invoice.AmountDueFromFamily.ToString("C")</td>
+                            <td>
+                                @if (line.Selected && !line.Invoice.IsForGuardian && _balances.GetValueOrDefault(line.Invoice.ScoutId) > 0)
+                                {
+                                    <input type="text" inputmode="decimal" data-money-input style="max-width:9rem;" class="from-scout-account"
+                                           value="@line.ScoutAmountText" @oninput="e => SetScoutAmount(line, e)" @onchange="e => CommitScoutAmount(line, e)"
+                                           aria-label="Amount from @line.Invoice.BilledTo's scout account for @line.Invoice.Description" />
+                                    <div class="hint" style="margin-top:0.25rem;">@FirstName(line.Invoice.BilledTo) has @_balances[line.Invoice.ScoutId].ToString("C")</div>
+                                    @if (ScoutProblem(line) is { } scoutProblem)
+                                    {
+                                        <div class="hint" style="color:var(--tf-red-dark);margin-top:0.25rem;">@scoutProblem</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="hint">&mdash;</span>
+                                }
+                            </td>
+                            <td>
+                                @if (line.Selected)
+                                {
+                                    <input type="text" inputmode="decimal" data-money-input style="max-width:9rem;" class="family-pays"
+                                           value="@line.AmountText" @oninput="e => SetAmount(line, e)" @onchange="e => CommitAmount(line, e)"
+                                           aria-label="Amount the family pays on @line.Invoice.BilledTo's invoice @line.Invoice.Description" />
+                                    @if (line.Problem is { } problem)
+                                    {
+                                        <div class="hint" style="color:var(--tf-red-dark);margin-top:0.25rem;">@problem</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="hint">&mdash;</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+
+            <p style="margin-top:1rem;"><strong>Family pays:</strong> <span class="money" id="paymentTotal">@Total.ToString("C")</span>
+                <span class="hint">across @SelectedLines.Count(l => l.Amount > 0) invoice@(SelectedLines.Count(l => l.Amount > 0) == 1 ? "" : "s")</span></p>
+            @if (ScoutTotal > 0)
+            {
+                <p><strong>From scout accounts:</strong> <span class="money" id="scoutTotal">@ScoutTotal.ToString("C")</span></p>
+            }
+
+            @if (Total > 0)
+            {
+                <div class="field">
+                    <label for="paymentMethod">Payment method</label>
+                    <select id="paymentMethod" @bind="_method">
+                        @foreach (var method in InvoicePaymentMethod.External)
+                        {
+                            <option value="@method">@method</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="reference">@InvoicePaymentMethod.ReferenceLabel(_method)</label>
+                    <input id="reference" type="text" @bind="_reference" @bind:event="oninput" placeholder="@InvoicePaymentMethod.ReferencePlaceholder(_method)" />
+                </div>
+            }
+            else if (ScoutTotal > 0)
+            {
+                <p class="hint">Scout accounts cover all of it; there's no family payment to record or deposit.</p>
+            }
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <div class="row-actions">
+                <button class="btn btn-primary" disabled="@(!CanRecord || _saving)" @onclick="RecordAsync">Record family payment</button>
+                @if (SelectedLines.Any())
+                {
+                    <a class="btn btn-secondary" id="printFamilyInvoice" target="_blank" rel="noopener" href="@PrintUrl"><i class="fa-solid fa-print" aria-hidden="true"></i> Print family bill</a>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? GuardianId { get; set; }
+
+    /// <summary>Arriving from a scout's statement: opens on that scout's family.</summary>
+    [SupplyParameterFromQuery]
+    private string? ScoutId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _message;
+    private string? _error;
+    private string? _notice;
+    private string _guardianId = string.Empty;
+    private string _method = InvoicePaymentMethod.Check;
+    private string _reference = string.Empty;
+    private List<Family> _families = [];
+    private List<Line> _lines = [];
+
+    private sealed record Family(string GuardianId, string Name, HashSet<string> ScoutIds, List<InvoiceEntity> Invoices);
+
+    private sealed class Line(InvoiceEntity invoice)
+    {
+        public InvoiceEntity Invoice { get; } = invoice;
+        public bool Selected { get; set; } = true;
+
+        /// <summary>What the family pays (check, cash, ...).</summary>
+        public decimal Amount { get; set; } = invoice.AmountDueFromFamily;
+        public string AmountText { get; set; } = AmountInputParser.Format(invoice.AmountDueFromFamily);
+
+        /// <summary>What the invoice's scout's own account covers.</summary>
+        public decimal ScoutAmount { get; set; }
+        public string ScoutAmountText { get; set; } = AmountInputParser.Format(0);
+
+        public string? Problem => !Selected ? null
+            : Amount + ScoutAmount <= 0 ? "Enter an amount, or untick this invoice."
+            : Amount + ScoutAmount > Invoice.AmountDueFromFamily ? $"More than the {Invoice.AmountDueFromFamily:C} due."
+            : null;
+
+        /// <summary>Sets what the family pays to whatever the scout account leaves.</summary>
+        public void FamilyPaysTheRest()
+        {
+            Amount = Math.Max(0, Invoice.AmountDueFromFamily - ScoutAmount);
+            AmountText = AmountInputParser.Format(Amount);
+        }
+    }
+
+    private IEnumerable<Line> SelectedLines => _lines.Where(l => l.Selected);
+
+    private decimal Total => SelectedLines.Sum(l => l.Amount);
+
+    private decimal ScoutTotal => SelectedLines.Sum(l => l.ScoutAmount);
+
+    /// <summary>Scout account balances for the chosen family's scouts.</summary>
+    private Dictionary<string, decimal> _balances = [];
+
+    private static string FirstName(string fullName) => fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? fullName;
+
+    /// <summary>Set on a line when its scout's lines together ask for more than the scout has.</summary>
+    private string? ScoutProblem(Line line)
+    {
+        if (!line.Selected || line.ScoutAmount <= 0)
+        {
+            return null;
+        }
+
+        var balance = _balances.GetValueOrDefault(line.Invoice.ScoutId);
+        var wanted = SelectedLines.Where(l => l.Invoice.ScoutId == line.Invoice.ScoutId && !l.Invoice.IsForGuardian).Sum(l => l.ScoutAmount);
+        return wanted > balance ? $"More than the {balance:C} in {FirstName(line.Invoice.BilledTo)}'s account." : null;
+    }
+
+    /// <summary>Fills each ticked scout invoice from its scout's account, earliest due first, and
+    /// leaves the rest for the family.</summary>
+    private void UseScoutFundsFirst()
+    {
+        var left = new Dictionary<string, decimal>(_balances);
+        foreach (var line in SelectedLines)
+        {
+            var available = line.Invoice.IsForGuardian ? 0 : Math.Max(0, left.GetValueOrDefault(line.Invoice.ScoutId));
+            line.ScoutAmount = Math.Min(available, line.Invoice.AmountDueFromFamily);
+            line.ScoutAmountText = AmountInputParser.Format(line.ScoutAmount);
+            if (line.ScoutAmount > 0)
+            {
+                left[line.Invoice.ScoutId] = available - line.ScoutAmount;
+            }
+
+            line.FamilyPaysTheRest();
+        }
+    }
+
+    /// <summary>Printable combined invoice for the ticked invoices (opens in a new tab and prints).</summary>
+    private string PrintUrl =>
+        $"/admin/invoices/family-payment/print?guardianId={Uri.EscapeDataString(_guardianId)}&invoices={Uri.EscapeDataString(string.Join(',', SelectedLines.Select(l => l.Invoice.InvoiceId)))}";
+
+    private bool CanRecord => SelectedLines.Any() && SelectedLines.All(l => l.Problem is null && ScoutProblem(l) is null) &&
+        (Total == 0 || !InvoicePaymentMethod.RequiresReference(_method) || !string.IsNullOrWhiteSpace(_reference));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFamiliesAsync();
+        if (!string.IsNullOrEmpty(GuardianId) && _families.Any(f => f.GuardianId == GuardianId))
+        {
+            _guardianId = GuardianId;
+            await GuardianChanged();
+        }
+        else if (!string.IsNullOrEmpty(ScoutId))
+        {
+            // The scout's guardian with something to pay; with two such guardians, the first by name
+            // (the other is one pick away in the list).
+            if (_families.FirstOrDefault(f => f.ScoutIds.Contains(ScoutId)) is { } family)
+            {
+                _guardianId = family.GuardianId;
+                await GuardianChanged();
+            }
+            else
+            {
+                _notice = "That scout's family has no outstanding invoices, or the scout isn't linked to a guardian yet.";
+            }
+        }
+        _loading = false;
+    }
+
+    /// <summary>Guardians with at least one outstanding invoice across their linked scouts.</summary>
+    private async Task LoadFamiliesAsync()
+    {
+        var outstanding = (await InvoiceRepository.GetPageAsync(InvoiceStatus.Outstanding, null, null, 1, int.MaxValue)).Items;
+        var outstandingByScout = outstanding.Where(i => !i.IsForGuardian)
+            .GroupBy(i => i.ScoutId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var families = new List<Family>();
+        foreach (var guardian in (await GuardianRepository.GetAllAsync()).Where(g => g.IsActive))
+        {
+            var links = await LinkRepository.GetScoutsForGuardianAsync(guardian.GuardianId);
+            var invoices = links
+                .SelectMany(link => outstandingByScout.GetValueOrDefault(link.ScoutId) ?? [])
+                // Plus anything billed to this guardian as an adult.
+                .Concat(outstanding.Where(i => i.GuardianId == guardian.GuardianId))
+                .OrderBy(i => i.DueDate ?? DateTimeOffset.MaxValue)
+                .ThenBy(i => i.BilledTo)
+                .ToList();
+            if (invoices.Count > 0)
+            {
+                families.Add(new Family(guardian.GuardianId, guardian.FullName, links.Select(l => l.ScoutId).ToHashSet(), invoices));
+            }
+        }
+
+        _families = families.OrderBy(f => f.Name).ToList();
+    }
+
+    private async Task GuardianChanged()
+    {
+        _error = null;
+        _notice = null;
+        var family = _families.FirstOrDefault(f => f.GuardianId == _guardianId);
+        _lines = family is null ? [] : family.Invoices.Select(i => new Line(i)).ToList();
+
+        _balances = [];
+        foreach (var scoutId in _lines.Where(l => !l.Invoice.IsForGuardian).Select(l => l.Invoice.ScoutId).Distinct())
+        {
+            if (await ScoutRepository.GetByIdAsync(scoutId) is { } scout)
+            {
+                _balances[scoutId] = scout.CachedBalance;
+            }
+        }
+    }
+
+    private static void Toggle(Line line)
+    {
+        line.Selected = !line.Selected;
+        line.ScoutAmount = 0;
+        line.ScoutAmountText = AmountInputParser.Format(0);
+        line.Amount = line.Invoice.AmountDueFromFamily;
+        line.AmountText = AmountInputParser.Format(line.Amount);
+    }
+
+    private void SetScoutAmount(Line line, ChangeEventArgs e)
+    {
+        // Doesn't touch ScoutAmountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        line.ScoutAmount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        line.FamilyPaysTheRest();
+        StateHasChanged();
+    }
+
+    private void CommitScoutAmount(Line line, ChangeEventArgs e)
+    {
+        SetScoutAmount(line, e);
+        line.ScoutAmountText = AmountInputParser.Format(line.ScoutAmount);
+    }
+
+    private void SetAmount(Line line, ChangeEventArgs e)
+    {
+        // Doesn't touch AmountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        line.Amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(Line line, ChangeEventArgs e)
+    {
+        SetAmount(line, e);
+        line.AmountText = AmountInputParser.Format(line.Amount);
+    }
+
+    private async Task RecordAsync()
+    {
+        if (!CanRecord || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var user = authState?.User.Identity?.Name ?? "unknown";
+            var lines = SelectedLines.Select(l => new FamilyPaymentLine(l.Invoice.OwnerId, l.Invoice.InvoiceId, l.Amount, l.ScoutAmount)).ToList();
+            var total = Total;
+            var fromScouts = SelectedLines.Where(l => l.ScoutAmount > 0)
+                .GroupBy(l => l.Invoice.BilledTo)
+                .Select(g => $"{g.Sum(l => l.ScoutAmount):C} from {FirstName(g.Key)}'s scout account")
+                .ToList();
+            await ScoutAccountService.RecordFamilyPaymentAsync(lines, _method, _reference, user);
+
+            var name = _families.FirstOrDefault(f => f.GuardianId == _guardianId)?.Name ?? "the family";
+            var familyPart = total > 0
+                ? $"{total:C} {(_method == InvoicePaymentMethod.Venmo ? _method : _method.ToLowerInvariant())} payment from {name}"
+                : null;
+            var parts = new[] { familyPart }.Concat(fromScouts).Where(p => p is not null);
+            _message = $"Recorded {string.Join(", plus ", parts)}{(fromScouts.Count > 0 ? "," : "")} " +
+                $"across {lines.Count} invoice{(lines.Count == 1 ? "" : "s")}" +
+                (total == 0 || string.IsNullOrWhiteSpace(_reference) ? "." : $" ({_reference.Trim()}).");
+            _reference = string.Empty;
+
+            await LoadFamiliesAsync();
+            if (_families.All(f => f.GuardianId != _guardianId))
+            {
+                _guardianId = string.Empty;
+            }
+            await GuardianChanged();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't record the family payment. Please check the invoices and try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

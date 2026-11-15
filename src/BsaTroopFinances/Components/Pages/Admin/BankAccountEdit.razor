@@ -1,0 +1,190 @@
+@page "/admin/bank/accounts/new"
+@page "/admin/bank/accounts/{Id}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>@(IsNew ? "Add an Account" : "Edit Account")</PageTitle>
+
+<div class="page-header-row">
+    <h1>@(IsNew ? "Add an Account" : "Edit Account")</h1>
+    <a class="back-link" href="@BackUrl"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>@(IsNew ? "Back to accounts" : "Back to account")</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_account is null)
+{
+    <div class="alert alert-danger">Account not found.</div>
+}
+else
+{
+    <div class="card">
+        <div class="field">
+            <label for="name">Name</label>
+            <input id="name" type="text" @bind="_account.Name" @bind:event="oninput" placeholder="e.g. Troop checking, Venmo, Cash box" />
+        </div>
+        <div class="field">
+            <label for="kind">Kind</label>
+            <select id="kind" @bind="_account.Kind">
+                @foreach (var kind in TroopAccountKind.All)
+                {
+                    <option value="@kind">@kind</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="openingDate">Start keeping it here from</label>
+            <input id="openingDate" type="date" @bind="_openingDate" />
+        </div>
+        <div class="field">
+            <label for="openingBalance">Balance on that date</label>
+            <input id="openingBalance" data-money-input type="text" inputmode="decimal" value="@_balanceText" @oninput="SetBalance" @onchange="CommitBalance" />
+            <p class="hint">Use the bank statement balance for that day. Payments and donations received before it are taken to be in this balance already, so they won&rsquo;t wait to be deposited.</p>
+        </div>
+        @if (!IsNew)
+        {
+            <div class="field">
+                <label class="check-list-item">
+                    <input type="checkbox" @bind="_account.IsActive" />
+                    Active &mdash; can take new entries
+                </label>
+            </div>
+        }
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <div class="row-actions">
+            <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Save</button>
+            <a class="btn btn-outline-danger" href="@BackUrl">Cancel</a>
+            @if (!IsNew)
+            {
+                <button class="btn btn-ghost-danger" disabled="@_saving" @onclick="DeleteAsync" title="Only an account with no entries can be deleted">Delete account</button>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string? Id { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private TroopAccountEntity? _account;
+    private DateOnly _openingDate = DateOnly.FromDateTime(DateTime.Today);
+    private string _balanceText = "$0.00";
+
+    private bool IsNew => string.IsNullOrEmpty(Id);
+
+    private string BackUrl => IsNew ? "/admin/bank" : $"/admin/bank/accounts/{Id}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsNew)
+        {
+            _account = new TroopAccountEntity();
+        }
+        else
+        {
+            _account = await BankRepository.GetAccountAsync(Id!);
+            if (_account is not null)
+            {
+                _openingDate = DateOnly.FromDateTime(_account.OpeningDate.UtcDateTime);
+                _balanceText = AmountInputParser.Format(_account.OpeningBalance);
+            }
+        }
+
+        _loading = false;
+    }
+
+    private async Task<string> ActorAsync() =>
+        (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+
+    private async Task SaveAsync()
+    {
+        if (_account is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = await ActorAsync();
+            if (IsNew)
+            {
+                _account = await TroopAccountService.AddAccountAsync(_account.Name, _account.Kind, _account.OpeningBalance, _openingDate, actor);
+            }
+            else
+            {
+                _account.OpeningDate = new DateTimeOffset(_openingDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+                await TroopAccountService.UpdateAccountAsync(_account, actor);
+            }
+
+            Navigation.NavigateTo($"/admin/bank/accounts/{_account.AccountId}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save this account. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_account is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            await TroopAccountService.DeleteAccountAsync(_account.AccountId, await ActorAsync());
+            Navigation.NavigateTo("/admin/bank");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetBalance(ChangeEventArgs e)
+    {
+        // Doesn't touch _balanceText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _account!.OpeningBalance = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitBalance(ChangeEventArgs e)
+    {
+        SetBalance(e);
+        _balanceText = AmountInputParser.Format(_account!.OpeningBalance);
+    }
+}

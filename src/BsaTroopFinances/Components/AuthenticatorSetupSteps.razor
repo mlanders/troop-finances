@@ -1,0 +1,154 @@
+@inject TroopInfo Troop
+@* Linking an authenticator app to a guardian's portal sign-in: install, add (QR code / tap-to-add
+   link / typed key), then enter a code from the app to prove it worked. Nothing is saved until
+   that code checks out. Used by the guardian on Sign-in options, and by an admin on the Guardians
+   page with InPerson="true" -- the admin shows the QR code, the guardian scans it with their own
+   phone and reads back the code, so the wording addresses the admin and the QR code always shows
+   (a tablet at a troop meeting is the usual screen). The secret lives only in this component's
+   memory until saved, encrypted; it's never shown again. *@
+@inject IGuardianAuthenticatorService AuthenticatorService
+@inject IJSRuntime JS
+
+<ol class="authenticator-steps @(InPerson ? "authenticator-in-person" : null)">
+    <li>
+        @if (InPerson)
+        {
+            <strong>Have @FirstName install an authenticator app</strong> <text>on their phone if they don't have one (Google Authenticator,
+            Microsoft Authenticator, 1Password, Apple Passwords and so on).</text>
+        }
+        else
+        {
+            <strong>Install an authenticator app</strong> <text>on your phone if you don't have one (Google Authenticator,
+            Microsoft Authenticator, 1Password, Apple Passwords and so on).</text>
+        }
+    </li>
+    <li>
+        <strong>@(InPerson ? $"Have {FirstName} scan this QR code" : $"Add {Troop.AuthenticatorName} to the app.")</strong>
+        @if (InPerson)
+        {
+            <text> with the authenticator app (usually a <strong>+</strong> button, then "Scan QR code").</text>
+        }
+        <div class="authenticator-add">
+            <img class="authenticator-qr" src="@_setup.QrCodeDataUri" alt="QR code to scan with an authenticator app" width="@QrSize" height="@QrSize" />
+            <div class="authenticator-add-other">
+                @if (!InPerson)
+                {
+                    <p class="authenticator-qr-hint">On a computer, scan this QR code with the app.</p>
+                    <p>On this phone, tap: <a class="btn btn-secondary btn-sm" href="@_setup.OtpAuthUri"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add to authenticator app</a></p>
+                }
+                <p>@(InPerson ? "Camera trouble? They can type this setup key into the app instead:" : "Or type this setup key into the app:")</p>
+                <div class="authenticator-key">
+                    <code>@FormattedKey</code>
+                    @if (!InPerson)
+                    {
+                        <button type="button" class="btn btn-ghost btn-sm" @onclick="CopyKeyAsync">
+                            <i class="fa-solid @(_copied ? "fa-check" : "fa-copy")" aria-hidden="true"></i>@(_copied ? "Copied" : "Copy")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </li>
+    <li>
+        @if (InPerson)
+        {
+            <strong>Enter the 6-digit code</strong> <text>@FirstName's app now shows for @Troop.AuthenticatorName.</text>
+        }
+        else
+        {
+            <strong>Enter the 6-digit code</strong> <text>the app now shows for @Troop.AuthenticatorName.</text>
+        }
+        <form class="authenticator-confirm" @onsubmit="ConfirmAsync">
+            <label for="@_codeInputId" class="visually-hidden">6-digit code</label>
+            <input id="@_codeInputId" class="portal-login-code" @bind="_code" placeholder="123456"
+                   inputmode="numeric" autocomplete="@(InPerson ? "off" : "one-time-code")" maxlength="6" />
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" disabled="@_saving">Turn on</button>
+                <button type="button" class="btn btn-ghost" disabled="@_saving" @onclick="OnCancel">Cancel</button>
+            </div>
+        </form>
+    </li>
+</ol>
+
+@code {
+    private readonly string _codeInputId = "authenticator-code-" + Guid.NewGuid().ToString("N")[..8];
+    private AuthenticatorSetup _setup = default!;
+    private string _code = string.Empty;
+    private string? _error;
+    private bool _saving;
+    private bool _copied;
+
+    [Parameter, EditorRequired]
+    public GuardianEntity Guardian { get; set; } = default!;
+
+    /// <summary>An admin is showing the QR code to the guardian in person.</summary>
+    [Parameter]
+    public bool InPerson { get; set; }
+
+    /// <summary>After the app is linked and saved.</summary>
+    [Parameter]
+    public EventCallback OnLinked { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private string FirstName => Guardian.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "the guardian";
+
+    // Bigger in person: it's scanned from across a table, not from the guardian's own screen.
+    private int QrSize => InPerson ? 240 : 180;
+
+    /// <summary>The setup key in groups of four, easier to read and retype.</summary>
+    private string FormattedKey => string.Join(' ', _setup.SecretKey.Chunk(4).Select(c => new string(c)));
+
+    // Created when the steps first appear (they only render after a button press, so prerendering
+    // never mints a secret nobody sees).
+    protected override void OnInitialized() => _setup = AuthenticatorService.BeginSetup(Guardian.Email);
+
+    private async Task CopyKeyAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _setup.SecretKey);
+            _copied = true;
+        }
+        catch (JSException)
+        {
+            // Clipboard blocked (permissions, older browser): the key is on screen to copy by hand.
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            if (await AuthenticatorService.ConfirmSetupAsync(Guardian, _setup.SecretKey, _code))
+            {
+                await OnLinked.InvokeAsync();
+            }
+            else
+            {
+                _error = $"That code didn't match. Make sure {Troop.AuthenticatorName} was added to the app, then enter the code it's showing now.";
+                _code = string.Empty;
+            }
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't turn on the authenticator app. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

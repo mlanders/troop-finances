@@ -1,0 +1,69 @@
+@inject TroopInfo Troop
+@* Shown to a signed-in admin who isn't allowed to see the page they asked for. Two cases: no
+   role at all (a new sign-in waiting for an Editor -- an access request), or a Read-only user on
+   an Edit-only page. Both routable (directly at /admin/no-access, where the admin cookie's
+   AccessDeniedPath sends a rejected request) and usable as a plain child component with an
+   explicit User (Routes.razor's AuthorizeRouteView NotAuthorized branch does this, since it
+   already has the right ClaimsPrincipal in hand and reaches this before any routing of its own
+   happens). Each branch picks its own layout via LayoutView instead of a single @layout, since
+   the two cases genuinely want different chrome -- EmptyLayout keeps the router from wrapping
+   either one a second time when this is reached by direct navigation. *@
+@page "/admin/no-access"
+@layout Layout.EmptyLayout
+
+@if (ResolvedUser.HasTroopFinanceAccess())
+{
+    <LayoutView Layout="typeof(Layout.AdminLayout)">
+        <h1>Access denied</h1>
+        <p>You're signed in, but this page needs Edit access to treasurer data.</p>
+        <p class="hint">You have Read-only access. Ask an Editor to change it to Edit if you need to make changes.</p>
+        <a class="btn btn-primary" href="/admin">Back to dashboard</a>
+    </LayoutView>
+}
+else
+{
+    <LayoutView Layout="typeof(Layout.PublicLayout)">
+        <div class="card portal-login-card">
+            <h1>No access yet</h1>
+            <p>You don't have access to @Troop.AppName yet. Your sign-in has been recorded &mdash;
+                please contact an administrator (the troop treasurer) and ask them to give you access.</p>
+            @if (!string.IsNullOrEmpty(ResolvedUser.Identity?.Name))
+            {
+                <p class="hint">
+                    Signed in as <strong>@ResolvedUser.Identity.Name</strong>@(AdminIdentity.Email(ResolvedUser) is { } email && email != ResolvedUser.Identity.Name ? $" ({email})" : "")
+                    @if (AdminIdentity.Provider(ResolvedUser) is { Length: > 0 } provider)
+                    {
+                        <text> with @provider</text>
+                    }. That's who they'll find on the access list.
+                </p>
+            }
+            <form method="post" action="/admin/signout">
+                <AntiforgeryToken />
+                <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Sign out</button>
+            </form>
+        </div>
+    </LayoutView>
+}
+
+@code {
+    // Supplied explicitly by Routes.razor's NotAuthorized branch, which already has the right
+    // principal; left null when reached by direct navigation to /admin/no-access, in which case
+    // it's resolved from the cascading auth state instead (see ResolvedUser).
+    [Parameter]
+    public System.Security.Claims.ClaimsPrincipal? User { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private System.Security.Claims.ClaimsPrincipal? _authStateUser;
+
+    private System.Security.Claims.ClaimsPrincipal ResolvedUser => User ?? _authStateUser ?? new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (User is null && AuthStateTask is not null)
+        {
+            _authStateUser = (await AuthStateTask).User;
+        }
+    }
+}

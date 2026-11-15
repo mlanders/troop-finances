@@ -1,0 +1,327 @@
+@page "/portal/receipts/new"
+@rendermode InteractiveServer
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IGuardianRepository GuardianRepository
+@inject IReimbursementService ReimbursementService
+@inject NavigationManager Navigation
+@inject PersistentComponentState ComponentState
+@using BsaTroopFinances.Data.Repositories
+@using System.Security.Claims
+@using System.Globalization
+
+<PageTitle>Submit a Receipt</PageTitle>
+
+<h1>Submit a Receipt</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="card">
+        <div class="field">
+            <label for="scout">Scout (optional, leave blank for a trip or troop equipment cost)</label>
+            <select id="scout" @bind="_scoutId">
+                <option value="">-- None --</option>
+                @foreach (var scout in _scouts)
+                {
+                    <option value="@scout.ScoutId">@scout.FullName</option>
+                }
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="amount">Amount</label>
+            <input id="amount" class="receipt-amount" data-money-input type="text" inputmode="decimal" autocomplete="off" value="@_amountText" @oninput="OnAmountInput" @onchange="OnAmountChanged" />
+        </div>
+
+        <div class="field">
+            <label for="description">What was this for?</label>
+            <input id="description" type="text" @bind="_description" />
+        </div>
+
+        <div class="field">
+            <label for="receipt">Receipt (JPEG, PNG, or PDF, up to 10 MB)</label>
+            <div class="receipt-dropzone @(_isDragOver ? "receipt-dropzone-active" : string.Empty) @(_selectedFile is not null ? "receipt-dropzone-has-file" : string.Empty)"
+                 @ondragenter="OnDragEnter"
+                 @ondragleave="OnDragLeave"
+                 @ondragover:preventDefault>
+                <InputFile id="receipt" class="receipt-file-input" OnChange="OnFileSelected" accept=".jpg,.jpeg,.png,.pdf" />
+                @if (_selectedFile is null)
+                {
+                    @* Phones and tablets get their own wording: tapping opens the system picker, which
+                       already offers the camera as well as photos and files (a capture attribute would
+                       skip straight to the camera and lose the photo library). *@
+                    <span class="receipt-dropzone-pointer">Drag and drop a receipt here, or click to browse</span>
+                    <span class="receipt-dropzone-touch"><i class="fa-solid fa-camera" aria-hidden="true"></i> Tap to take a photo of the receipt or choose a file</span>
+                }
+                else
+                {
+                    <div class="receipt-selected-file">
+                        <ReceiptPreview InputId="receipt" Version="_fileVersion" CssClass="receipt-file-preview" />
+                        <div class="receipt-selected-meta">
+                            <strong>@_selectedFile.Name</strong>
+                            <span>@((_selectedFile.Size / 1024.0).ToString("N0")) KB</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_error is not null && !_reviewing)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <div class="form-actions">
+            <button class="btn btn-primary" disabled="@(!CanSubmit || _submitting)" @onclick="OpenReview">Review</button>
+        </div>
+    </div>
+
+    @if (_reviewing && _selectedFile is not null)
+    {
+        <div class="confirmation-backdrop" @onclick="CloseReview">
+            <section class="confirmation-dialog confirmation-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="receipt-review-title" @onclick:stopPropagation="true">
+                <h2 id="receipt-review-title">Check your receipt</h2>
+                <p>Make sure everything looks right before you send it to the treasurer.</p>
+                <dl class="receipt-review-details">
+                    <dt>Scout</dt>
+                    <dd>@(_scouts.FirstOrDefault(s => s.ScoutId == _scoutId)?.FullName ?? "None (trip or troop equipment)")</dd>
+                    <dt>Amount</dt>
+                    <dd>@_amount.ToString("C2")</dd>
+                    <dt>What it was for</dt>
+                    <dd>@_description.Trim()</dd>
+                    <dt>Receipt</dt>
+                    <dd>@_selectedFile.Name</dd>
+                </dl>
+                <ReceiptPreview InputId="receipt" Version="_fileVersion" CssClass="receipt-review-preview" />
+
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+
+                <div class="row-actions">
+                    <button class="btn btn-primary" disabled="@_submitting" @onclick="Submit">@(_submitting ? "Submitting…" : "Submit")</button>
+                    <button class="btn btn-ghost" disabled="@_submitting" @onclick="CloseReview">Back to edit</button>
+                </div>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
+    private const string GuardianIdStateKey = "portal-submit-guardian-id";
+    private const string ScoutsStateKey = "portal-submit-scouts";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _submitting;
+    private bool _isDragOver;
+    private bool _reviewing;
+    private int _fileVersion;
+    private string? _error;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+    private string? _guardianId;
+
+    private string _scoutId = string.Empty;
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _description = string.Empty;
+    private IBrowserFile? _selectedFile;
+
+    private bool CanSubmit => _amount > 0 && !string.IsNullOrWhiteSpace(_description) && _selectedFile is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ComponentState.TryTakeFromJson<string>(GuardianIdStateKey, out var persistedGuardianId))
+        {
+            _guardianId = persistedGuardianId;
+        }
+
+        if (ComponentState.TryTakeFromJson<List<Data.Entities.ScoutEntity>>(ScoutsStateKey, out var persistedScouts)
+            && persistedScouts is not null)
+        {
+            _scouts = persistedScouts;
+            _loading = false;
+            return;
+        }
+
+        ComponentState.RegisterOnPersisting(PersistStateAsync);
+        var guardianId = await ResolveGuardianIdAsync();
+        _guardianId = guardianId;
+
+        if (guardianId is not null)
+        {
+            var links = await LinkRepository.GetScoutsForGuardianAsync(guardianId);
+            _scouts = links.Select(l => new Data.Entities.ScoutEntity
+            {
+                PartitionKey = Data.Entities.ScoutEntity.PartitionKeyValue,
+                RowKey = l.ScoutId,
+                FullName = l.ScoutName,
+            }).ToList();
+        }
+
+        _loading = false;
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _isDragOver = false;
+        _error = null;
+        var file = e.File;
+
+        if (file.Size > MaxFileSizeBytes)
+        {
+            _error = "That file is too large -- receipts must be 10 MB or smaller.";
+            _selectedFile = null;
+            return;
+        }
+
+        _selectedFile = file;
+        _fileVersion++;
+    }
+
+    private void OpenReview()
+    {
+        _amount = ParseAmount(_amountText);
+        _amountText = _amount.ToString("C2");
+        _error = null;
+        _reviewing = CanSubmit;
+    }
+
+    private void CloseReview()
+    {
+        if (!_submitting)
+        {
+            _reviewing = false;
+            _error = null;
+        }
+    }
+
+    private void OnDragEnter(DragEventArgs _)
+    {
+        _isDragOver = true;
+    }
+
+    private void OnDragLeave(DragEventArgs _)
+    {
+        _isDragOver = false;
+    }
+
+    private void OnAmountInput(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount (admin
+        // side) for why: amount-input.js already reformats the input live and keeps the caret in
+        // place, and re-rendering the same value="..." text on every keystroke would make Blazor
+        // reapply it via JS interop, which resets the caret to the end regardless of whether the
+        // string actually changed.
+        _amount = ParseAmount(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void OnAmountChanged(ChangeEventArgs e)
+    {
+        OnAmountInput(e);
+        _amountText = _amount.ToString("C2");
+    }
+
+    private async Task Submit()
+    {
+        _amount = ParseAmount(_amountText);
+        _amountText = _amount.ToString("C2");
+
+        if (!CanSubmit || _submitting || _selectedFile is null)
+        {
+            return;
+        }
+
+        _submitting = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var guardianId = _guardianId ?? await ResolveGuardianIdAsync();
+
+            if (guardianId is null)
+            {
+                _error = "Your session has expired. Please sign in again.";
+                return;
+            }
+
+            var guardian = await GuardianRepository.GetByIdAsync(guardianId);
+            var fullName = guardian?.FullName
+                ?? authState?.User.FindFirst("FullName")?.Value
+                ?? "Unknown";
+            var email = guardian?.Email
+                ?? authState?.User.FindFirst(ClaimTypes.Email)?.Value
+                ?? string.Empty;
+
+            var scoutName = _scouts.FirstOrDefault(s => s.ScoutId == _scoutId)?.FullName;
+
+            await using var stream = _selectedFile.OpenReadStream(MaxFileSizeBytes);
+            await ReimbursementService.SubmitAsync(
+                guardianId, fullName, email,
+                string.IsNullOrEmpty(_scoutId) ? null : _scoutId, scoutName,
+                _amount, _description.Trim(), stream, _selectedFile.ContentType, _selectedFile.Name, _selectedFile.Size);
+
+            Navigation.NavigateTo("/portal/receipts");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't submit this receipt. Please try again.";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private static decimal ParseAmount(string text)
+    {
+        var decimalIndex = text.LastIndexOf('.');
+        var fractionalDigits = decimalIndex >= 0
+            ? text[(decimalIndex + 1)..].Count(char.IsDigit)
+            : 0;
+
+        if (decimalIndex >= 0 && fractionalDigits is > 0 and <= 2
+            && decimal.TryParse(text, NumberStyles.Currency, CultureInfo.GetCultureInfo("en-US"), out var explicitAmount))
+        {
+            return Math.Round(Math.Max(0, explicitAmount), 2, MidpointRounding.AwayFromZero);
+        }
+
+        var digits = new string(text.Where(char.IsDigit).ToArray());
+        if (digits.Length > 10)
+        {
+            digits = digits[..10];
+        }
+
+        return long.TryParse(digits, out var cents) ? cents / 100m : 0;
+    }
+
+    private async Task<string?> ResolveGuardianIdAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        var guardianId = authState?.User.FindFirst("GuardianId")?.Value;
+        if (!string.IsNullOrWhiteSpace(guardianId))
+        {
+            return guardianId;
+        }
+
+        var email = authState?.User.FindFirst(ClaimTypes.Email)?.Value;
+        return string.IsNullOrWhiteSpace(email)
+            ? null
+            : (await GuardianRepository.GetByEmailAsync(email))?.GuardianId;
+    }
+
+    private Task PersistStateAsync()
+    {
+        ComponentState.PersistAsJson(GuardianIdStateKey, _guardianId);
+        ComponentState.PersistAsJson(ScoutsStateKey, _scouts);
+        return Task.CompletedTask;
+    }
+}

@@ -1,0 +1,294 @@
+@page "/portal/login"
+@inject TroopInfo Troop
+@layout PublicLayout
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@inject IEmailCodeAuthService AuthService
+@inject IGuardianAuthenticatorService AuthenticatorService
+@inject NavigationManager Navigation
+
+@* Deliberately NOT @rendermode InteractiveServer. HttpContext.SignInAsync must run before the
+   response is committed, which is unreliable inside a live interactive-Server circuit (a
+   persistent SignalR connection separate from the original HTTP request/response). Keeping this
+   page static/SSR means each step is a normal form POST -- the component re-renders as part of
+   handling that same request, response still open, so SignInAsync here actually works. This is
+   the same reason the admin side never tries to sign in "in-circuit": it's a full external
+   redirect to Microsoft or Google instead. *@
+
+<PageTitle>Parent Sign in - @Troop.AppName</PageTitle>
+
+@* Same card as the landing page and Admin Sign in: logo and title, then a two-step indicator
+   (email, then code) so it's clear a second step is coming. ?method=app swaps in the
+   authenticator-app sign-in instead: email and the app's current code in one step. *@
+<div class="card signin portal-signin">
+    <img class="signin-logo" src="favicon.svg" alt="" width="64" height="64" />
+    <h1>Parent Sign in</h1>
+    <p class="signin-sub">to @Troop.AppName</p>
+
+    @if (AppMode)
+    {
+        @* Authenticator app: one step -- email plus the code the app is showing right now. *@
+        <p class="portal-signin-app-intro">
+            <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+            <span>Enter your email and the 6-digit code your authenticator app shows for <strong>@Troop.AuthenticatorName</strong>.</span>
+        </p>
+
+        <EditForm Model="AppForm" FormName="app-code" OnValidSubmit="HandleAppSignIn" method="post" class="portal-signin-form">
+            <DataAnnotationsValidator />
+
+            <div class="field">
+                <label for="app-email">Email</label>
+                <div class="input-icon">
+                    <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                    <InputText id="app-email" @bind-Value="AppForm.Email" type="email" placeholder="you@example.com" autocomplete="email" />
+                </div>
+                <ValidationMessage For="() => AppForm.Email" />
+            </div>
+
+            <div class="field portal-login-code-field">
+                <label for="app-code">Code from your app</label>
+                <InputText id="app-code" class="portal-login-code" @bind-Value="AppForm.Code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+                <ValidationMessage For="() => AppForm.Code" />
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> Sign in</button>
+        </EditForm>
+
+        <p class="signin-note">No authenticator app yet? Sign in with an emailed code, then turn it on under <strong>Sign-in options</strong>.</p>
+        <p class="portal-login-back"><a href="@EmailModeHref"><i class="fa-solid fa-envelope" aria-hidden="true"></i> Email me a code instead</a></p>
+    }
+
+    @if (!AppMode)
+    {
+        <ol class="signin-steps" aria-label="Sign-in steps">
+            <li class="signin-step @(CodeStep ? "is-done" : "is-current")" aria-current="@(CodeStep ? null : "step")">
+                <span class="signin-step-num">@if (CodeStep) { <i class="fa-solid fa-check" aria-hidden="true"></i> } else { <text>1</text> }</span>
+                Your email
+            </li>
+            <li class="signin-step-line" aria-hidden="true"></li>
+            <li class="signin-step @(CodeStep ? "is-current" : "")" aria-current="@(CodeStep ? "step" : null)">
+                <span class="signin-step-num">2</span>
+                Enter code
+            </li>
+        </ol>
+    }
+
+    @if (EmailStep)
+    {
+        <EditForm Model="RequestForm" FormName="request-code" OnValidSubmit="HandleRequestCode" method="post" class="portal-signin-form">
+            <DataAnnotationsValidator />
+
+            <div class="field">
+                <label for="email">Email</label>
+                <div class="input-icon">
+                    <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                    <InputText id="email" @bind-Value="RequestForm.Email" type="email" placeholder="you@example.com" autocomplete="email" />
+                </div>
+                <ValidationMessage For="() => RequestForm.Email" />
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Send my code</button>
+        </EditForm>
+
+        <p class="signin-note">We'll email you a 6-digit code &mdash; no password needed. Use the
+            email address the troop has on file for you.</p>
+
+        <div class="signin-or" role="separator"><span>or</span></div>
+        <a class="btn btn-secondary btn-block portal-signin-app-btn" href="@AppModeHref"><i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i> Use my authenticator app</a>
+    }
+    else if (CodeStep)
+    {
+        <p class="portal-signin-sent">
+            <i class="fa-solid fa-envelope-circle-check" aria-hidden="true"></i>
+            <span>If <strong>@Email</strong> is a registered guardian email, a 6-digit code is on its way from <strong>@Troop.SenderAddress</strong>.</span>
+        </p>
+
+        <EditForm Model="VerifyForm" FormName="verify-code" OnValidSubmit="HandleVerifyCode" method="post">
+            <DataAnnotationsValidator />
+
+            <div class="field portal-login-code-field">
+                <label for="code">6-digit code</label>
+                <InputText id="code" class="portal-login-code" @bind-Value="VerifyForm.Code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+                <ValidationMessage For="() => VerifyForm.Code" />
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> Verify &amp; sign in</button>
+        </EditForm>
+
+        <p class="signin-note">Not there? Check your spam or junk folder. The code expires in 10 minutes.</p>
+        <p class="portal-login-back"><a href="/portal/login"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Use a different email</a></p>
+    }
+
+    <p class="signin-foot">Treasurer or adult leader? Use the <a href="/admin/signin">admin sign-in</a>.</p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? Email { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private RequestCodeFormModel RequestForm { get; set; } = new();
+
+    [SupplyParameterFromForm]
+    private VerifyCodeFormModel VerifyForm { get; set; } = new();
+
+    [SupplyParameterFromForm]
+    private AppCodeFormModel AppForm { get; set; } = new();
+
+    /// <summary>"app" shows the authenticator-app sign-in instead of the emailed-code steps.</summary>
+    [SupplyParameterFromQuery]
+    private string? Method { get; set; }
+
+    private string? _error;
+
+    private bool AppMode => string.Equals(Method, "app", StringComparison.OrdinalIgnoreCase);
+    private bool CodeStep => !AppMode && !string.IsNullOrEmpty(Email);
+    private bool EmailStep => !AppMode && !CodeStep;
+
+    private string AppModeHref => "/portal/login?method=app" + ReturnUrlQuery("&");
+    private string EmailModeHref => "/portal/login" + ReturnUrlQuery("?");
+
+    private string ReturnUrlQuery(string separator) =>
+        string.IsNullOrEmpty(ReturnUrl) ? string.Empty : $"{separator}returnUrl={Uri.EscapeDataString(ReturnUrl)}";
+
+    protected override void OnInitialized()
+    {
+        // Arriving from the email step with an address already typed: carry it over.
+        if (AppMode && string.IsNullOrEmpty(AppForm.Email) && !string.IsNullOrEmpty(Email))
+        {
+            AppForm.Email = Email;
+        }
+    }
+
+    private async Task HandleAppSignIn()
+    {
+        GuardianEntity guardian;
+        try
+        {
+            guardian = await AuthenticatorService.VerifySignInAsync(AppForm.Email, AppForm.Code);
+        }
+        catch (InvalidLoginCodeException ex)
+        {
+            _error = ex.Message;
+            AppForm.Code = string.Empty;
+            return;
+        }
+
+        await SignInGuardianAsync(guardian);
+    }
+
+    private async Task SignInGuardianAsync(GuardianEntity guardian)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Name, guardian.FullName),
+            new(ClaimTypes.Email, guardian.Email),
+            new("GuardianId", guardian.GuardianId),
+            new("FullName", guardian.FullName),
+        };
+        var identity = new ClaimsIdentity(claims, "ParentAuth");
+        var principal = new ClaimsPrincipal(identity);
+
+        // Persistent, so closing the browser or the home-screen app doesn't sign them out.
+        await HttpContext.SignInAsync("ParentAuth", principal, new AuthenticationProperties { IsPersistent = true });
+
+        Navigation.NavigateTo(IsLocalReturnUrl(ReturnUrl) ? ReturnUrl! : "/portal", forceLoad: true);
+    }
+
+    private async Task HandleRequestCode()
+    {
+        try
+        {
+            await AuthService.RequestCodeAsync(RequestForm.Email);
+        }
+        catch (LoginCodeRateLimitedException ex)
+        {
+            _error = ex.Message;
+            return;
+        }
+        catch (Exception)
+        {
+            _error = "We couldn't send a sign-in code. Please try again shortly.";
+            return;
+        }
+
+        var target = $"/portal/login?email={Uri.EscapeDataString(RequestForm.Email)}";
+        if (!string.IsNullOrEmpty(ReturnUrl))
+        {
+            target += $"&returnUrl={Uri.EscapeDataString(ReturnUrl)}";
+        }
+
+        Navigation.NavigateTo(target);
+    }
+
+    private async Task HandleVerifyCode()
+    {
+        try
+        {
+            var guardian = await AuthService.VerifyCodeAsync(Email!, VerifyForm.Code);
+            await SignInGuardianAsync(guardian);
+        }
+        catch (InvalidLoginCodeException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    // Guards against an open-redirect: ReturnUrl is attacker-controllable query string input (an
+    // attacker can craft a login link with returnUrl=https://evil.example and, after the victim
+    // signs in with their own real code, get redirected off-site). Only a same-origin, root-
+    // relative path is accepted; "//evil.com" (protocol-relative) and "/\evil.com" are rejected
+    // too since browsers treat both as absolute.
+    private static bool IsLocalReturnUrl(string? returnUrl) =>
+        !string.IsNullOrEmpty(returnUrl)
+        && returnUrl.StartsWith('/')
+        && !returnUrl.StartsWith("//")
+        && !returnUrl.StartsWith("/\\");
+
+    public class RequestCodeFormModel
+    {
+        [Required(ErrorMessage = "Enter your email.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email.")]
+        public string Email { get; set; } = string.Empty;
+    }
+
+    public class AppCodeFormModel
+    {
+        [Required(ErrorMessage = "Enter your email.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter the code from your app.")]
+        [StringLength(6, MinimumLength = 6, ErrorMessage = "The code is 6 digits.")]
+        public string Code { get; set; } = string.Empty;
+    }
+
+    public class VerifyCodeFormModel
+    {
+        [Required(ErrorMessage = "Enter the code.")]
+        [StringLength(6, MinimumLength = 6, ErrorMessage = "The code is 6 digits.")]
+        public string Code { get; set; } = string.Empty;
+    }
+}

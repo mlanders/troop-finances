@@ -1,0 +1,132 @@
+@page "/admin/settings/email-history"
+@rendermode InteractiveServer
+@inject IEmailLogRepository LogRepository
+@inject TimeProvider TimeProvider
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Sent Email</PageTitle>
+
+<div class="page-header-row">
+    <h1>Sent Email</h1>
+    <a class="back-link" href="/admin/settings"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to settings</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="action-bar">
+        <div class="filter-group">
+            <label class="filter-label" for="toFilter">To address</label>
+            <input id="toFilter" type="text" style="width:auto;min-width:16rem;" placeholder="Filter by address"
+                   value="@_toFilter" @oninput="SetToFilter" />
+        </div>
+
+        <div class="filter-group" role="group" aria-label="Email type filter">
+            <span class="filter-label">Type</span>
+            <div class="choice-grid-compact">
+                <button class="choice-btn choice-btn-compact @(_typeFilter is null ? "selected" : "")" @onclick="() => SetTypeFilter(null)">All</button>
+                @foreach (var type in EmailTypes)
+                {
+                    <button class="choice-btn choice-btn-compact @(_typeFilter == type ? "selected" : "")" @onclick="() => SetTypeFilter(type)">@EmailType.DisplayName(type)</button>
+                }
+            </div>
+        </div>
+        <span class="hint" style="margin-left:auto;">Note: will only show last three months</span>
+    </div>
+
+    <div class="card">
+        @if (FilteredCount == 0)
+        {
+            <p>No emails here.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Sent email">
+            <table class="report-table">
+                <thead>
+                    <tr>
+                        <th>Sent</th>
+                        <th>Type</th>
+                        <th>To</th>
+                        <th>Subject</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in PagedEntries)
+                    {
+                        <tr>
+                            <td>@entry.SentUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@EmailType.DisplayName(entry.EmailType)</td>
+                            <td>@entry.ToEmail</td>
+                            <td><div class="cell-wrap">@entry.Subject</div></td>
+                            <td>
+                                @if (entry.Status == EmailLogStatus.Failed)
+                                {
+                                    <span class="badge badge-rejected">Failed</span>
+                                    <div class="cell-wrap hint">@entry.Error</div>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-paid">@entry.Status</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+
+            <div class="row-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-secondary" disabled="@(_page <= 1)" @onclick="() => _page--">Previous</button>
+                <span class="hint">Page @_page of @TotalPages (@FilteredCount email@(FilteredCount == 1 ? "" : "s"))</span>
+                <button class="btn btn-secondary" disabled="@(_page >= TotalPages)" @onclick="() => _page++">Next</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const int PageSize = 25;
+
+    private static readonly string[] EmailTypes =
+        [EmailType.LoginCode, EmailType.AuthenticatorChanged, EmailType.ReceiptSubmitted, EmailType.ReceiptStatus, EmailType.Invoice];
+
+    private bool _loading = true;
+    private IReadOnlyList<EmailLogEntity> _entries = [];
+    private string _toFilter = string.Empty;
+    private string? _typeFilter;
+    private int _page = 1;
+
+    private IEnumerable<EmailLogEntity> Filtered => _entries
+        .Where(e => _typeFilter is null || e.EmailType == _typeFilter)
+        .Where(e => string.IsNullOrWhiteSpace(_toFilter) || e.ToEmail.Contains(_toFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private int FilteredCount => Filtered.Count();
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)PageSize));
+
+    private IEnumerable<EmailLogEntity> PagedEntries => Filtered.Skip((_page - 1) * PageSize).Take(PageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _entries = await LogRepository.GetSinceAsync(TimeProvider.GetUtcNow().AddMonths(-3));
+        _loading = false;
+    }
+
+    private void SetToFilter(ChangeEventArgs e)
+    {
+        _toFilter = e.Value?.ToString() ?? string.Empty;
+        _page = 1;
+    }
+
+    private void SetTypeFilter(string? type)
+    {
+        _typeFilter = type;
+        _page = 1;
+    }
+}

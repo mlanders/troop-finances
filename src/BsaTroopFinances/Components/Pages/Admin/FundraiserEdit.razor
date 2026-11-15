@@ -1,0 +1,193 @@
+@page "/admin/fundraisers/{Id}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IFundraiserEventRepository FundraiserRepository
+@inject IScoutLedgerRepository LedgerRepository
+@inject IFinanceAuditRepository AuditRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Edit Fundraiser</PageTitle>
+
+<h1>Edit Fundraiser</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_event is null)
+{
+    <div class="alert alert-danger">Fundraiser not found.</div>
+}
+else
+{
+    <div class="card">
+        <div class="field">
+            <label for="name">Name</label>
+            <input id="name" type="text" @bind="_name" />
+        </div>
+        <div class="field">
+            <label for="date">Date</label>
+            <input id="date" type="date" @bind="_date" />
+        </div>
+        <div class="field">
+            <label for="description">Description</label>
+            <input id="description" type="text" @bind="_description" />
+        </div>
+        <div class="field">
+            <label for="raised">Total raised</label>
+            <input id="raised" type="text" inputmode="decimal" data-money-input value="@_raisedText" @oninput="SetRaised" @onchange="CommitRaised" />
+        </div>
+        <div class="field">
+            <label for="expenses">Expenses</label>
+            <input id="expenses" type="text" inputmode="decimal" data-money-input value="@_expensesText" @oninput="SetExpenses" @onchange="CommitExpenses" />
+        </div>
+        <div class="field">
+            <label for="goal">Fundraising goal (optional)</label>
+            <input id="goal" type="text" inputmode="decimal" data-money-input value="@_goalText" @oninput="SetGoal" @onchange="CommitGoal" />
+        </div>
+        @if (_raised - _expenses < _allocatedTotal)
+        {
+            <p class="hint">Total raised less expenses (@((_raised - _expenses).ToString("C"))) is below the @_allocatedTotal.ToString("C") already allocated to scouts, so this can't be saved.</p>
+        }
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <button class="btn btn-primary" disabled="@(_saving || !CanSave)" @onclick="Save">Save changes</button>
+        <a class="btn btn-outline-danger" href="@($"/admin/fundraisers/{Id}")">Cancel</a>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private Data.Entities.FundraiserEventEntity? _event;
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private DateTime _date = DateTime.Today;
+    private decimal _raised;
+    private decimal _expenses;
+    private decimal? _goal;
+    private string _raisedText = "$0.00";
+    private string _expensesText = "$0.00";
+    private string _goalText = "$0.00";
+    private decimal _allocatedTotal;
+
+    private bool CanSave => !string.IsNullOrWhiteSpace(_name) && _date != default && _raised - _expenses >= _allocatedTotal && _expenses >= 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _event = await FundraiserRepository.GetByIdAsync(Id);
+        if (_event is not null)
+        {
+            _name = _event.Name;
+            _description = _event.Description;
+            _date = _event.EventDate.UtcDateTime.Date;
+            _raised = (_event.TotalRaised ?? 0);
+            _expenses = (_event.TotalExpenses ?? 0);
+            _goal = _event.GoalAmount.HasValue ? _event.GoalAmount.Value : null;
+            _raisedText = AmountInputParser.Format(_raised);
+            _expensesText = AmountInputParser.Format(_expenses);
+            _goalText = AmountInputParser.Format(_goal ?? 0);
+
+            var ledger = await LedgerRepository.GetForSourceAsync(Data.Entities.LedgerSourceType.FundraiserAllocation, Id);
+            _allocatedTotal = ledger.Sum(e => e.Amount);
+        }
+        _loading = false;
+    }
+
+    private void SetRaised(ChangeEventArgs e)
+    {
+        // Doesn't touch _raisedText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _raised = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitRaised(ChangeEventArgs e)
+    {
+        SetRaised(e);
+        _raisedText = AmountInputParser.Format(_raised);
+    }
+
+    private void SetExpenses(ChangeEventArgs e)
+    {
+        // Doesn't touch _expensesText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _expenses = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitExpenses(ChangeEventArgs e)
+    {
+        SetExpenses(e);
+        _expensesText = AmountInputParser.Format(_expenses);
+    }
+
+    private void SetGoal(ChangeEventArgs e)
+    {
+        // Doesn't touch _goalText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _goal = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitGoal(ChangeEventArgs e)
+    {
+        SetGoal(e);
+        _goalText = AmountInputParser.Format(_goal ?? 0);
+    }
+
+    private async Task Save()
+    {
+        if (_event is null || _saving || !CanSave)
+        {
+            _error = $"Total raised less expenses must be at least the amount already allocated to scouts ({_allocatedTotal:C}).";
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var oldName = _event.Name;
+            var oldDate = _event.EventDate;
+            var oldDescription = _event.Description;
+            var oldRaised = (_event.TotalRaised ?? 0);
+            var oldExpenses = (_event.TotalExpenses ?? 0);
+            var oldGoal = _event.GoalAmount.HasValue ? _event.GoalAmount.Value : (decimal?)null;
+            _event.Name = _name.Trim();
+            // A calendar date, not a moment: stored as midnight UTC and displayed from its UTC date.
+            _event.EventDate = new DateTimeOffset(DateTime.SpecifyKind(_date.Date, DateTimeKind.Unspecified), TimeSpan.Zero);
+            _event.Description = _description.Trim();
+            _event.TotalRaised = _raised;
+            _event.TotalExpenses = _expenses;
+            _event.GoalAmount = _goal.HasValue ? _goal.Value : null;
+            await FundraiserRepository.UpdateAsync(_event);
+
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var actor = authState?.User.Identity?.Name ?? "unknown";
+            var changes = $"Name: {oldName} → {_event.Name}; date: {oldDate.UtcDateTime:MMM d, yyyy} → {_date:MMM d, yyyy}; raised: {oldRaised:C} → {_raised:C}; expenses: {oldExpenses:C} → {_expenses:C}; goal: {(oldGoal.HasValue ? oldGoal.Value.ToString("C") : "not set")} → {(_goal.HasValue ? _goal.Value.ToString("C") : "not set")}.";
+            if (!string.Equals(oldDescription, _event.Description, StringComparison.Ordinal))
+            {
+                changes += $" Description changed.";
+            }
+            await AuditRepository.AddAsync(Data.Entities.FinanceAuditEntityType.Fundraiser, Id, "Details Updated", actor, details: changes);
+
+            Navigation.NavigateTo($"/admin/fundraisers/{Id}");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save fundraiser details. Please try again.";
+            _saving = false;
+        }
+    }
+}

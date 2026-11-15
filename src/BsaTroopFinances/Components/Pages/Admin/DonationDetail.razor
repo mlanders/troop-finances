@@ -1,0 +1,263 @@
+@page "/admin/donations/{Id}"
+@rendermode InteractiveServer
+@inject IDonationRepository DonationRepository
+@inject IDonationService DonationService
+@inject IScoutRepository ScoutRepository
+@inject IFinanceAuditRepository AuditRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Donation Details</PageTitle>
+
+<div class="page-header-row">
+    <h1>Donation Details</h1>
+    <a class="back-link" href="/admin/donations"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to donations</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_donation is null)
+{
+    <div class="alert alert-danger">Donation not found. It may have been deleted.</div>
+}
+else
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" href="@($"/admin/donations/{_donation.DonationId}/thank-you-letter")" download><i class="fa-solid fa-file-word" aria-hidden="true"></i>Thank-you letter (.docx)</a>
+        @if (_canWrite)
+        {
+            @if (!_donation.IsInKind && Remaining > 0)
+            {
+                <a class="btn btn-ghost" href="@($"/admin/donations/{_donation.DonationId}/credit")"><i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i>Credit to scouts</a>
+            }
+            <a class="btn btn-ghost" href="@($"/admin/donations/{_donation.DonationId}/edit")"><i class="fa-solid fa-pen" aria-hidden="true"></i>Edit</a>
+            <button class="btn btn-ghost" disabled="@_saving" @onclick="ToggleAcknowledgedAsync">
+                <i class="fa-solid @(_donation.NeedsAcknowledgment ? "fa-envelope-circle-check" : "fa-rotate-left")" aria-hidden="true"></i>@(_donation.NeedsAcknowledgment ? "Mark thank-you sent" : "Mark thank-you not sent")
+            </button>
+            <button class="btn btn-ghost-danger" disabled="@(_credited > 0 || _saving)" title="@(_credited > 0 ? "Credited to scouts, so this gift can't be deleted." : null)" @onclick="() => _confirmingDelete = true"><i class="fa-solid fa-trash" aria-hidden="true"></i>Delete</button>
+        }
+    </div>
+
+    @if (_confirmingDelete)
+    {
+        <div class="alert alert-danger">
+            <strong>Delete the @_donation.Amount.ToString("C") gift from @_donation.DonorName? This can't be undone.</strong>
+            <div class="row-actions" style="margin-top:0.5rem;">
+                <button class="btn btn-danger btn-sm" disabled="@_saving" @onclick="DeleteAsync">Confirm delete</button>
+                <button class="btn btn-outline-danger btn-sm" disabled="@_saving" @onclick="() => _confirmingDelete = false">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <div class="card">
+        <h2>@_donation.Amount.ToString("C")@(_donation.IsInKind ? " in goods" : "") from @_donation.DonorName</h2>
+        <p><strong>Received:</strong> @_donation.ReceivedDate.UtcDateTime.ToString("MMM d, yyyy")</p>
+        <p><strong>How:</strong> @_donation.Method@(string.IsNullOrEmpty(_donation.Reference) ? "" : $" — {_donation.Reference}")</p>
+        <p><strong>For:</strong> @(_donation.IsRestricted ? _donation.Purpose : "General use (no restriction)")</p>
+        @if (_donation.IsAnonymous)
+        {
+            <p><strong>Anonymous:</strong> families see &ldquo;Anonymous donation&rdquo; on their scout&rsquo;s account.</p>
+        }
+        @if (!string.IsNullOrEmpty(_donation.DonorEmail))
+        {
+            <p><strong>Email:</strong> <a href="@($"mailto:{_donation.DonorEmail}")">@_donation.DonorEmail</a></p>
+        }
+        @if (!string.IsNullOrEmpty(_donation.DonorAddress))
+        {
+            <p><strong>Mailing address:</strong> <span style="white-space:pre-line;">@_donation.DonorAddress</span></p>
+        }
+        <p>
+            <strong>Thank-you:</strong>
+            @if (_donation.NeedsAcknowledgment)
+            {
+                <span class="badge @(_donation.Amount >= DonationEntity.AcknowledgmentThreshold ? "badge-rejected" : "badge-pending")">Needed</span>
+                @if (_donation.Amount >= DonationEntity.AcknowledgmentThreshold)
+                {
+                    <span class="hint"> &mdash; gifts of @DonationEntity.AcknowledgmentThreshold.ToString("C0") or more usually need a written acknowledgment for the donor&rsquo;s taxes</span>
+                }
+                <br /><span class="hint">Download the thank-you letter, then mark the thank-you sent once it&rsquo;s mailed.</span>
+            }
+            else
+            {
+                <span class="badge badge-paid">Sent</span>
+                <span class="hint"> @_donation.AcknowledgedUtc!.Value.ToLocalTime().ToString("MMM d, yyyy") by @_donation.AcknowledgedBy</span>
+            }
+        </p>
+        @if (!_donation.IsInKind)
+        {
+            <p><strong>Credited to scouts:</strong> @_credited.ToString("C")</p>
+            <p><strong>Kept by the troop:</strong> @Remaining.ToString("C")</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(_donation.Notes))
+        {
+            <p><strong>Notes:</strong> @_donation.Notes</p>
+        }
+        <p class="hint">Recorded @_donation.CreatedUtc.ToLocalTime().ToString("MMM d, yyyy") by @_donation.CreatedBy</p>
+    </div>
+
+    @if (!_donation.IsInKind)
+    {
+        <div class="card">
+            <h2>Credited to scouts</h2>
+            @if (_credits.Count == 0)
+            {
+                <p>None of this gift has been credited to scouts.</p>
+            }
+            else
+            {
+                <div class="table-scroll" role="region" tabindex="0" aria-label="Credits to scouts">
+                <table class="report-table">
+                    <thead><tr><th>Date</th><th>Scout</th><th>Amount</th><th>Description</th></tr></thead>
+                    <tbody>
+                        @foreach (var credit in _credits)
+                        {
+                            <tr>
+                                <td>@credit.CreatedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                                <td><a href="@($"/admin/scouts/{credit.PartitionKey}")">@_scoutNames.GetValueOrDefault(credit.PartitionKey, credit.PartitionKey)</a></td>
+                                <td class="money">@credit.Amount.ToString("C")</td>
+                                <td>@credit.Description</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="card">
+        <h2>Action history</h2>
+        @if (_history.Count == 0)
+        {
+            <p class="hint">No recorded actions yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Donation action history">
+            <table class="report-table">
+                <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Details / note</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _history)
+                    {
+                        <tr>
+                            <td>@entry.OccurredUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@entry.Action</td>
+                            <td>@entry.Actor</td>
+                            <td><div class="cell-wrap cell-wrap-wide">@entry.Details @entry.Notes</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private bool _confirmingDelete;
+    private string? _error;
+    private DonationEntity? _donation;
+    private decimal _credited;
+    private IReadOnlyList<ScoutLedgerEntryEntity> _credits = [];
+    private Dictionary<string, string> _scoutNames = [];
+    private IReadOnlyList<FinanceAuditEntryEntity> _history = [];
+
+    private decimal Remaining => Math.Max(0, (_donation?.Amount ?? 0) - _credited);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _donation = await DonationRepository.GetByIdAsync(Id);
+        if (_donation is not null)
+        {
+            _credits = await DonationService.GetCreditsAsync(Id);
+            _credited = _credits.Sum(c => c.Amount);
+            _scoutNames = (await ScoutRepository.GetAllAsync()).ToDictionary(s => s.ScoutId, s => s.FullName);
+            _history = await AuditRepository.GetForEntityAsync(FinanceAuditEntityType.Donation, Id);
+        }
+
+        _loading = false;
+    }
+
+    private async Task<string> ActorAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        return authState?.User.Identity?.Name ?? "unknown";
+    }
+
+    private async Task ToggleAcknowledgedAsync()
+    {
+        if (!_canWrite || _saving || _donation is null)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            await DonationService.SetAcknowledgedAsync(Id, _donation.NeedsAcknowledgment, await ActorAsync());
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't update the thank-you. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!_canWrite || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            await DonationService.DeleteAsync(Id, await ActorAsync());
+            Navigation.NavigateTo("/admin/donations");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            _confirmingDelete = false;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't delete this donation. Please try again.";
+            _confirmingDelete = false;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

@@ -1,0 +1,31 @@
+@* Reached via app.UseExceptionHandler("/Error", ...) in Program.cs whenever an unhandled
+   exception escapes a request in a non-Development environment. No @layout here means it picks
+   up Routes.razor's DefaultLayout (PublicLayout), same as Home/NotFound/PortalLogin. *@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Something went wrong</PageTitle>
+
+<div class="card portal-login-card" style="text-align:center;">
+    <h1>Something went wrong</h1>
+    <p>We hit a snag processing that request. Try again in a moment -- if it keeps happening,
+        let the troop treasurer know.</p>
+
+    @if (ShowRequestId)
+    {
+        <p class="hint">Reference: <code>@RequestId</code></p>
+    }
+
+    <a class="btn btn-primary" href="/">Back to home</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

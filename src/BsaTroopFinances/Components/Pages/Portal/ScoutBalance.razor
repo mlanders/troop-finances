@@ -1,0 +1,134 @@
+@page "/portal/scouts/{Id}"
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IScoutAccountService ScoutAccountService
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Scout Balance</PageTitle>
+
+<div class="page-header-row">
+    <h1>Scout Details</h1>
+    <a class="back-link" href="/portal"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to my scouts</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (!_isOwned)
+{
+    <div class="alert alert-danger">You don't have access to this scout's information.</div>
+}
+else if (_statement is null)
+{
+    <div class="alert alert-danger">Scout not found.</div>
+}
+else
+{
+    <div class="card">
+        <h2>@_statement.Scout.FullName</h2>
+        <p>Available in scout fund: <span class="money @(_statement.Scout.CachedBalance < 0 ? "money-negative" : "money-positive")" style="font-size:1.4rem;">@_statement.Scout.CachedBalance.ToString("C")</span></p>
+        <p>Amount owed: <span class="money money-negative" style="font-size:1.4rem;">@AmountOwed.ToString("C")</span></p>
+    </div>
+
+    <div class="card">
+        <h2>Invoices</h2>
+        @if (_statement.Invoices.Count == 0)
+        {
+            <p>No invoices yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scout invoices">
+            <table class="report-table">
+                <thead>
+                    <tr><th>Issued</th><th>Due date</th><th>Description</th><th>Total</th><th>Still owed</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var invoice in _statement.Invoices)
+                    {
+                        <tr>
+                            <td>@invoice.IssuedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td>@(invoice.DueDate?.UtcDateTime.ToString("MMM d, yyyy") ?? "—")</td>
+                            <td>@invoice.Description</td>
+                            <td class="money">@invoice.TotalAmount.ToString("C")</td>
+                            <td class="money">@(invoice.StatusValue == Data.Entities.InvoiceStatus.Outstanding ? invoice.AmountDueFromFamily.ToString("C") : "—")</td>
+                            <td><span class="badge badge-@invoice.StatusValue.ToLowerInvariant()">@invoice.StatusValue</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Activity</h2>
+        @if (_statement.LedgerEntries.Count == 0)
+        {
+            <p>No activity yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scout account activity">
+            <table class="report-table">
+                <thead>
+                    <tr><th>Date</th><th>Description</th><th>Amount</th><th>Recorded by</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in _statement.LedgerEntries.OrderByDescending(e => e.RowKey))
+                    {
+                        <tr>
+                            <td>@entry.CreatedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td>@entry.Description</td>
+                            @if (entry.SourceTypeValue == LedgerSourceType.NameChange)
+                            {
+                                <td class="money">&mdash;</td>
+                            }
+                            else
+                            {
+                                <td class="money @(entry.EntryTypeValue == LedgerEntryType.Credit ? "money-positive" : "money-negative")">
+                                    @(entry.EntryTypeValue == LedgerEntryType.Credit ? "+" : "-")@entry.Amount.ToString("C")
+                                </td>
+                            }
+                            <td>@entry.CreatedBy</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _isOwned;
+    private Models.ScoutStatementModel? _statement;
+
+    private decimal AmountOwed => _statement?.Invoices
+        .Where(i => i.StatusValue == Data.Entities.InvoiceStatus.Outstanding)
+        .Sum(i => i.AmountDueFromFamily) ?? 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        var guardianId = authState?.User.FindFirst("GuardianId")?.Value;
+
+        if (guardianId is not null)
+        {
+            _isOwned = await LinkRepository.IsLinkedAsync(guardianId, Id);
+            if (_isOwned)
+            {
+                _statement = await ScoutAccountService.GetScoutStatementAsync(Id);
+            }
+        }
+
+        _loading = false;
+    }
+}

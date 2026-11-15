@@ -1,0 +1,96 @@
+@page "/admin/fundraisers"
+@rendermode InteractiveServer
+@inject IFundraiserEventRepository FundraiserRepository
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Fundraisers</PageTitle>
+
+<h1>Fundraisers</h1>
+
+@if (_canWrite)
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" href="/admin/fundraisers/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Create a fundraiser</a>
+    </div>
+}
+
+<div class="card">
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (_events.Count == 0)
+    {
+        <p>No fundraisers yet.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Fundraiser list">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Name</th>
+                    <th>Total raised</th>
+                    <th>Expenses</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var evt in _events)
+                {
+                    <tr>
+                        <td>@evt.EventDate.UtcDateTime.ToString("MMM d, yyyy")</td>
+                        <td>@evt.Name</td>
+                        <td class="money">@(evt.TotalRaised?.ToString("C") ?? "—")</td>
+                        <td class="money">@(evt.TotalExpenses?.ToString("C") ?? "—")</td>
+                        <td>@evt.StatusValue</td>
+                        <td>
+                            <div class="ellipsis-menu">
+                                <input type="checkbox" id="@($"fundraiserMenu-{evt.EventId}")" class="ellipsis-menu-check" />
+                                <label for="@($"fundraiserMenu-{evt.EventId}")" class="ellipsis-menu-toggle" aria-label="More actions for @evt.Name">
+                                    <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                </label>
+                                <div class="ellipsis-menu-panel">
+                                    <a class="ellipsis-menu-item" href="@($"/admin/fundraisers/{evt.EventId}")">
+                                        <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
+                                        Details / Edit
+                                    </a>
+                                    <a class="ellipsis-menu-item" href="@($"/admin/fundraisers/{evt.EventId}/allocate")">
+                                        <i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i>
+                                        Allocate
+                                    </a>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private IReadOnlyList<Data.Entities.FundraiserEventEntity> _events = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _events = await FundraiserRepository.GetAllAsync();
+        _loading = false;
+    }
+}

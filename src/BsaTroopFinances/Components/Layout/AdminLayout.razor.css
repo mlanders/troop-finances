@@ -1,0 +1,438 @@
+.admin-shell {
+    min-height: 100vh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The header plus the section tab bar (SectionTabs), stuck to the top as one. */
+.admin-top {
+    box-shadow: 0 2px 12px rgba(7, 37, 74, 0.08);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.admin-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.9rem 1.5rem;
+    background: white;
+    border-bottom: 4px solid var(--tf-red);
+    /* Above the tab bar, so the narrow-screen drop-down menu opens over it. */
+    position: relative;
+    z-index: 1;
+    flex-wrap: wrap;
+}
+
+.admin-brand {
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-weight: 800;
+    color: var(--tf-navy);
+    text-decoration: none;
+    font-size: 1.05rem;
+    white-space: nowrap;
+}
+
+.admin-menu-check {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.admin-menu-toggle {
+    display: none;
+    min-height: 44px;
+    min-width: 44px;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    font-size: 1.3rem;
+    line-height: 1;
+    color: var(--tf-navy);
+    cursor: pointer;
+}
+
+.admin-header-content {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.admin-nav {
+    display: flex;
+    gap: 1.1rem;
+    flex: 1;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+    .admin-nav ::deep a {
+        flex: 0 0 auto;
+        color: var(--tf-navy);
+        font-weight: 600;
+        text-decoration: none;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0.45rem 0.35rem;
+        position: relative;
+        font-size: 0.95rem;
+    }
+
+        .admin-nav ::deep a::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -0.2rem;
+            height: 3px;
+            background: var(--tf-red);
+            border-radius: 2px;
+            transform: scaleX(0);
+            transition: transform 0.18s ease;
+        }
+
+        .admin-nav ::deep a:hover,
+        .admin-nav ::deep a.active {
+            color: var(--tf-red);
+        }
+
+            .admin-nav ::deep a:hover::after,
+            .admin-nav ::deep a.active::after {
+                transform: scaleX(1);
+            }
+
+.admin-user {
+    color: var(--tf-text-muted);
+    font-size: 0.85rem;
+}
+
+.admin-signout {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.45rem 0.35rem;
+    color: var(--tf-navy);
+    font-weight: 600;
+    text-decoration: underline;
+    font-size: 0.9rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* The Settings/Sign-out icons, at 2/3 the text size so they read as a small marker beside the word. */
+.admin-signout .fa-gear,
+.admin-signout .fa-right-from-bracket {
+    font-size: 0.67em;
+    vertical-align: 0.1em;
+}
+
+@media (max-width: 1226px) {
+    .admin-top {
+        position: relative;
+    }
+
+    .admin-header {
+        position: relative;
+        gap: 0.5rem 0.75rem;
+        padding: 0.65rem 0.85rem;
+        flex-wrap: nowrap;
+    }
+
+    .admin-menu-toggle {
+        display: inline-flex;
+    }
+
+    .admin-header-content {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+        background: white;
+        border-bottom: 4px solid var(--tf-red);
+        box-shadow: 0 12px 20px rgba(7, 37, 74, 0.12);
+        padding: 1rem 1.25rem 1.25rem;
+    }
+
+        .admin-menu-check:checked ~ .admin-header-content {
+            display: flex;
+        }
+
+    .admin-nav {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.25rem;
+    }
+
+        /* In the drop-down, each link is a full-width row that highlights on hover/focus (and
+           when it's the current page) instead of the desktop's sliding red underline. */
+        .admin-nav ::deep a {
+            display: flex;
+            width: 100%;
+            padding: 0.65rem 0.85rem;
+            border-radius: 8px;
+            transition: background-color 0.15s ease, color 0.15s ease;
+        }
+
+            .admin-nav ::deep a::after {
+                display: none;
+            }
+
+            .admin-nav ::deep a:hover,
+            .admin-nav ::deep a:focus-visible {
+                background: #eaf0f8;
+                color: var(--tf-navy);
+            }
+
+            .admin-nav ::deep a.active {
+                background: rgba(206, 17, 38, 0.08);
+                color: var(--tf-red);
+            }
+
+    .admin-user {
+        padding: 0.25rem 0.85rem;
+        border-top: 1px solid var(--tf-border);
+        padding-top: 0.85rem;
+    }
+
+    /* Settings / Sign out get the same full-width hover-highlighted row treatment. */
+    .admin-signout {
+        display: flex;
+        width: 100%;
+        padding: 0.65rem 0.85rem;
+        border-radius: 8px;
+        text-decoration: none;
+        transition: background-color 0.15s ease;
+    }
+
+        .admin-signout:hover,
+        .admin-signout:focus-visible {
+            background: #eaf0f8;
+        }
+}
+
+.admin-main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1.5rem max(1.5rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+    flex: 1;
+    width: 100%;
+}
+
+/* Keep the header clear of a notch or rounded corner when the installed app draws edge to edge
+   (viewport-fit=cover in App.razor). The drop-down menu hangs from the header, so it follows. */
+.admin-header {
+    padding-top: max(0.9rem, env(safe-area-inset-top));
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+}
+
+@media (max-width: 1226px) {
+    .admin-header {
+        padding: max(0.65rem, env(safe-area-inset-top)) max(0.85rem, env(safe-area-inset-right)) 0.65rem max(0.85rem, env(safe-area-inset-left));
+    }
+}
+
+@media (max-width: 480px) {
+    .admin-main {
+        padding: 1rem max(0.85rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(0.85rem, env(safe-area-inset-left));
+    }
+}
+
+#blazor-error-ui {
+    color-scheme: light only;
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
+
+/* ---- Section icons ----
+   Shown beside each name in the ☰ drop-down and the phone's More panel, not in the desktop header. */
+.admin-nav ::deep a .fa-solid {
+    display: none;
+}
+
+@media (max-width: 1226px) {
+    .admin-nav ::deep a {
+        gap: 0.75rem;
+    }
+
+        .admin-nav ::deep a .fa-solid {
+            display: inline-block;
+            width: 1.25em;
+            text-align: center;
+            color: var(--tf-navy);
+        }
+
+        .admin-nav ::deep a.active .fa-solid {
+            color: var(--tf-red);
+        }
+
+    /* Settings and Sign out line up with the section rows above them, icons the same size. */
+    .admin-signout {
+        gap: 0.75rem;
+    }
+
+        .admin-signout .fa-gear,
+        .admin-signout .fa-right-from-bracket {
+            font-size: 1em;
+            width: 1.25em;
+            text-align: center;
+            vertical-align: 0;
+        }
+}
+
+/* ---- Phone tab bar (AdminLayout.razor), as in the troop's Hub app ----
+   Under 700px the four most-used sections sit in a bar fixed to the bottom of the screen. "More"
+   opens the header's menu as a panel rising from just above the bar, holding the other sections,
+   the signed-in person, Settings and Sign out; the ☰ button isn't needed. Hidden on wider screens,
+   where the header's links (or its ☰ drop-down) do the job. */
+.admin-tabbar,
+.admin-menu-backdrop {
+    display: none;
+}
+
+@media (max-width: 700px) {
+    .admin-tabbar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        display: flex;
+        background: white;
+        border-top: 1px solid var(--tf-border);
+        box-shadow: 0 -2px 12px rgba(7, 37, 74, 0.08);
+        padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+        .admin-tabbar a,
+        .admin-tabbar-more {
+            flex: 1 1 0;
+            min-width: 0;
+            min-height: 56px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.2rem;
+            padding: 0.4rem 0.15rem;
+            position: relative;
+            color: var(--tf-text-muted);
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-decoration: none;
+            white-space: nowrap;
+            cursor: pointer;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+            .admin-tabbar span {
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .admin-tabbar .fa-solid {
+                font-size: 1.25rem;
+            }
+
+            .admin-tabbar a.active,
+            .admin-tabbar-more.active {
+                color: var(--tf-red);
+            }
+
+                /* A short bar along the top edge marks the current tab. */
+                .admin-tabbar a.active::before,
+                .admin-tabbar-more.active::before {
+                    content: "";
+                    position: absolute;
+                    top: 0;
+                    left: 25%;
+                    right: 25%;
+                    height: 3px;
+                    border-radius: 0 0 3px 3px;
+                    background: var(--tf-red);
+                }
+
+    /* More does what the ☰ button did. */
+    .admin-menu-toggle {
+        display: none;
+    }
+
+    /* The menu becomes a panel rising from the tab bar, over a dimmed page that closes it on tap. */
+    .admin-menu-check:checked ~ .admin-menu-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        background: rgba(7, 37, 74, 0.35);
+    }
+
+    .admin-header-content {
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: calc(56px + env(safe-area-inset-bottom));
+        z-index: 2;
+        max-height: calc(100vh - 56px - 5rem);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-bottom: 0;
+        border-top: 4px solid var(--tf-red);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -12px 24px rgba(7, 37, 74, 0.18);
+        padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
+    }
+
+    /* The tab bar already has these, so the panel doesn't repeat them. */
+    .admin-nav ::deep a.admin-nav-in-tabbar {
+        display: none;
+    }
+
+    /* Room for the tab bar (56px) plus the home indicator, so the end of the page isn't hidden. */
+    .admin-main {
+        padding-bottom: calc(56px + 1.5rem + env(safe-area-inset-bottom));
+    }
+
+    /* The error bar sits above the tab bar rather than under it. */
+    .admin-shell ~ #blazor-error-ui {
+        bottom: calc(56px + env(safe-area-inset-bottom));
+    }
+}
+
+@media print {
+    .admin-tabbar {
+        display: none !important;
+    }
+}

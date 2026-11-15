@@ -1,0 +1,144 @@
+@page "/portal"
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IGuardianRepository GuardianRepository
+@inject IInvoiceRepository InvoiceRepository
+@inject IScoutRepository ScoutRepository
+@using BsaTroopFinances.Data.Repositories
+@using System.Security.Claims
+
+<PageTitle>My Scouts</PageTitle>
+
+<h1>My Scouts</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_scouts.Count == 0 && _ownInvoices.Count == 0)
+{
+    <div class="alert alert-info">No scouts are linked to your account yet. Contact the troop treasurer to get set up.</div>
+}
+else
+{
+    @if (HasOutstanding)
+    {
+        <div class="action-bar">
+            <a class="btn btn-ghost" id="printFamilyInvoice" target="_blank" rel="noopener" title="Every outstanding invoice for your family on one sheet"
+               href="/portal/invoices/family/print"><i class="fa-solid fa-print" aria-hidden="true"></i>Print family bill</a>
+        </div>
+    }
+
+    @foreach (var scout in _scouts)
+    {
+        <div class="card">
+            <h2>@scout.FullName</h2>
+            <p>Available in scout fund: <span class="money @(scout.CachedBalance < 0 ? "money-negative" : "money-positive")">@scout.CachedBalance.ToString("C")</span></p>
+            <p>Amount owed: <span class="money money-negative">@GetAmountOwed(scout.ScoutId).ToString("C")</span></p>
+            <a class="btn btn-secondary" href="@($"/portal/scouts/{scout.ScoutId}")">View details</a>
+        </div>
+    }
+
+    @if (_ownInvoices.Count > 0)
+    {
+        <div class="card" id="ownInvoices">
+            <h2>Your own invoices</h2>
+            <p class="hint">Charges for you as an adult, such as your place on a trip. These are separate from your scouts' invoices.</p>
+            <p>Amount owed: <span class="money money-negative">@_ownInvoices.Sum(i => i.AmountDueFromFamily).ToString("C")</span></p>
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Your own outstanding invoices">
+            <table class="report-table">
+                <thead><tr><th>Description</th><th>Due date</th><th>Amount due</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var invoice in _ownInvoices)
+                    {
+                        <tr>
+                            <td>@invoice.Description</td>
+                            <td>@(invoice.DueDate?.UtcDateTime.ToString("MMM d, yyyy") ?? "—")</td>
+                            <td class="money">@invoice.AmountDueFromFamily.ToString("C")</td>
+                            <td>
+                                <a class="btn btn-secondary" target="_blank" rel="noopener" href="@($"/portal/invoices/{invoice.InvoiceId}/print")"><i class="fa-solid fa-print" aria-hidden="true"></i> Print</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        </div>
+    }
+
+    <div class="card" id="statusSheet">
+        <h2>Family status sheet</h2>
+        <p class="hint">Your scouts' fund activity, invoices and payments for the dates you pick, as a PDF.</p>
+        <form method="get" action="/portal/status-sheet" target="_blank" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+            <div class="filter-group">
+                <label for="statusFrom" class="filter-label" style="margin-bottom:0;">From</label>
+                <input id="statusFrom" name="from" type="date" value="@_period.From.ToString("yyyy-MM-dd")" style="width:auto;" />
+            </div>
+            <div class="filter-group">
+                <label for="statusTo" class="filter-label" style="margin-bottom:0;">To</label>
+                <input id="statusTo" name="to" type="date" value="@_period.To.ToString("yyyy-MM-dd")" style="width:auto;" />
+            </div>
+            <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> Open status sheet</button>
+        </form>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+    private readonly Dictionary<string, decimal> _amountOwed = [];
+
+    // Outstanding invoices billed to this guardian as an adult.
+    private List<Data.Entities.InvoiceEntity> _ownInvoices = [];
+
+    // The status sheet's default period: the last 12 months.
+    private readonly (DateOnly From, DateOnly To) _period = FamilyStatusService.Period(null, null, DateOnly.FromDateTime(DateTime.Now));
+
+    private decimal GetAmountOwed(string scoutId) => _amountOwed.GetValueOrDefault(scoutId);
+
+    // Anything owed by the family -- for a scout or for the guardian as an adult.
+    private bool HasOutstanding => _ownInvoices.Count > 0 || _amountOwed.Values.Any(owed => owed > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        var guardianId = authState?.User.FindFirst("GuardianId")?.Value;
+
+        if (string.IsNullOrWhiteSpace(guardianId))
+        {
+            var email = authState?.User.FindFirst(ClaimTypes.Email)?.Value;
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                guardianId = (await GuardianRepository.GetByEmailAsync(email))?.GuardianId;
+            }
+        }
+
+        if (guardianId is not null)
+        {
+            var links = await LinkRepository.GetScoutsForGuardianAsync(guardianId);
+            var scouts = new List<Data.Entities.ScoutEntity>();
+            foreach (var link in links)
+            {
+                var scout = await ScoutRepository.GetByIdAsync(link.ScoutId);
+                if (scout is not null)
+                {
+                    scouts.Add(scout);
+                    var invoices = await InvoiceRepository.GetByScoutAsync(scout.ScoutId);
+                    _amountOwed[scout.ScoutId] = invoices
+                        .Where(i => i.StatusValue == Data.Entities.InvoiceStatus.Outstanding)
+                        .Sum(i => i.AmountDueFromFamily);
+                }
+            }
+
+            _scouts = scouts;
+            _ownInvoices = (await InvoiceRepository.GetByGuardianAsync(guardianId))
+                .Where(i => i.StatusValue == Data.Entities.InvoiceStatus.Outstanding)
+                .OrderBy(i => i.DueDate ?? DateTimeOffset.MaxValue)
+                .ToList();
+        }
+
+        _loading = false;
+    }
+}

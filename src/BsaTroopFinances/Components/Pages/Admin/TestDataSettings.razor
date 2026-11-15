@@ -1,0 +1,134 @@
+@page "/admin/settings/test-data"
+@rendermode InteractiveServer
+@inject ITestDataLoader TestDataLoader
+@inject ILogger<TestDataSettings> Logger
+
+<PageTitle>Test data</PageTitle>
+
+<div class="page-header-row">
+    <h1>Test data</h1>
+    <a class="back-link" href="/admin/settings"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to settings</a>
+</div>
+
+@if (!TestDataLoader.IsEnabled)
+{
+    <div class="alert alert-warning">Loading test data is turned off on this site (the TestData:Enabled setting).</div>
+}
+else if (!_canWrite)
+{
+    <div class="alert alert-warning">Only an Editor can load test data.</div>
+}
+else
+{
+    <div class="card">
+        <p class="hint" style="margin-top:0;">
+            Adds made-up invoices, reimbursements and fundraisers for the scouts and guardians already here,
+            spread over the last 12 months in every status. Scout balances change with it. Nothing existing is
+            changed or removed, no emails are sent, and everything it adds is recorded by "@TestDataGenerator.CreatedBy".
+        </p>
+        <div class="alert alert-warning">
+            There is no undo: the only way to remove test data is to restore a backup. Turn this page off
+            (remove the TestData:Enabled setting) before the troop starts using the site for real.
+        </div>
+
+        <div class="field">
+            <label for="invoices">Invoices</label>
+            <input id="invoices" type="number" min="0" max="@MaxInvoices" @bind="_invoices" disabled="@_running" />
+        </div>
+        <div class="field">
+            <label for="reimbursements">Reimbursements</label>
+            <input id="reimbursements" type="number" min="0" max="@MaxReimbursements" @bind="_reimbursements" disabled="@_running" />
+        </div>
+        <div class="field">
+            <label for="fundraisers">Fundraisers</label>
+            <input id="fundraisers" type="number" min="0" max="@MaxFundraisers" @bind="_fundraisers" disabled="@_running" />
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        @if (_summary is not null)
+        {
+            <div class="alert alert-success">
+                Added @_summary.Invoices invoices (@_summary.InvoicePayments payments, @_summary.InvoicesVoided voided),
+                @_summary.Reimbursements reimbursements (@_summary.ReimbursementsApproved approved, @_summary.ReimbursementsPaid paid,
+                @_summary.ReimbursementsRejected rejected) and @_summary.Fundraisers fundraisers (@_summary.Allocations allocations to scouts).
+            </div>
+        }
+
+        @if (_confirming)
+        {
+            <div class="alert alert-danger">
+                <strong>Add @Invoices invoices, @Reimbursements reimbursements and @Fundraisers fundraisers to this site?</strong>
+                <div class="row-actions" style="margin-top:0.5rem;">
+                    <button class="btn btn-danger btn-sm" disabled="@_running" @onclick="LoadAsync">@(_running ? "Loading… this can take a few minutes" : "Confirm load")</button>
+                    <button class="btn btn-outline-danger btn-sm" disabled="@_running" @onclick="() => _confirming = false">Cancel</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <button class="btn btn-primary" disabled="@(Invoices + Reimbursements + Fundraisers == 0)" @onclick="() => { _confirming = true; _summary = null; _error = null; }">Load test data</button>
+        }
+    </div>
+}
+
+@code {
+    private const int MaxInvoices = 1000;
+    private const int MaxReimbursements = 500;
+    private const int MaxFundraisers = 6;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _confirming;
+    private bool _running;
+    private string? _error;
+    private TestDataSummary? _summary;
+    private int _invoices = 250;
+    private int _reimbursements = 120;
+    private int _fundraisers = 2;
+
+    private int Invoices => Math.Clamp(_invoices, 0, MaxInvoices);
+    private int Reimbursements => Math.Clamp(_reimbursements, 0, MaxReimbursements);
+    private int Fundraisers => Math.Clamp(_fundraisers, 0, MaxFundraisers);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (!_canWrite || _running)
+        {
+            return;
+        }
+
+        _running = true;
+        _error = null;
+        try
+        {
+            // A different seed each time, so loading twice doesn't repeat the same records.
+            _summary = await TestDataLoader.LoadAsync(new TestDataOptions(Invoices, Reimbursements, Fundraisers, Random.Shared.Next()));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Loading test data failed");
+            _error = "Loading stopped partway through. Whatever was added before the failure is still there; details are in the app log.";
+        }
+        finally
+        {
+            _running = false;
+            _confirming = false;
+        }
+    }
+}

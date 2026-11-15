@@ -1,0 +1,115 @@
+@page "/admin/signin"
+@inject TroopInfo Troop
+@page "/admin/sign-in-failed"
+@layout Layout.PublicLayout
+@inject IConfiguration Configuration
+@inject IHostEnvironment Environment
+@inject NavigationManager Navigation
+
+@* The treasurer sign-in page, modelled on the meal-planner app's: one provider-styled button per
+   configured provider (with the provider's own mark, as their brand guidelines ask), each a plain
+   link to /admin/signin/{provider} (Program.cs), which hands off to Microsoft or Google.
+   Deliberately static (no @rendermode) -- the buttons are full-page navigations, not circuit
+   events. Lives outside the Admin folder so it isn't itself behind the "AdminOnly" policy. Also
+   serves /admin/sign-in-failed, where a cancelled or declined sign-in lands (see SignInFailures). *@
+
+<PageTitle>Admin Sign in - @Troop.AppName</PageTitle>
+
+<div class="card signin">
+    <img class="signin-logo" src="favicon.svg" alt="" width="64" height="64" />
+    <h1>Admin Sign in</h1>
+    <p class="signin-sub">to @Troop.AppName</p>
+
+    @if (_failed)
+    {
+        <div class="alert alert-warning">The sign-in was cancelled or didn't complete. Please try again.</div>
+    }
+
+    @if (_devAuth)
+    {
+        <p class="signin-note">This is a developer's copy: pick who to sign in as.</p>
+        <div class="signin-buttons">
+            <a class="signin-provider" href="@DevLink("Writer")"><i class="fa-solid fa-pen signin-provider-logo" aria-hidden="true"></i><span>Dev Editor</span></a>
+            <a class="signin-provider" href="@DevLink("Reader")"><i class="fa-solid fa-eye signin-provider-logo" aria-hidden="true"></i><span>Dev Read-only</span></a>
+            <a class="signin-provider" href="@DevLink("None")"><i class="fa-solid fa-user-clock signin-provider-logo" aria-hidden="true"></i><span>Dev, no access yet</span></a>
+        </div>
+    }
+    else if (!_microsoft && !_google)
+    {
+        <p class="signin-note">Treasurer sign-in isn't set up on this site yet.</p>
+    }
+    else
+    {
+        <div class="signin-buttons">
+            @if (_microsoft)
+            {
+                <a class="signin-provider signin-microsoft" href="@($"/admin/signin/microsoft?returnUrl={Uri.EscapeDataString(Back)}")">
+                    <svg class="signin-provider-logo" viewBox="0 0 21 21" aria-hidden="true">
+                        <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                        <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                        <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                        <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                    </svg>
+                    <span>Sign in with Microsoft</span>
+                </a>
+            }
+            @if (_google)
+            {
+                <a class="signin-provider signin-google" href="@($"/admin/signin/google?returnUrl={Uri.EscapeDataString(Back)}")">
+                    <svg class="signin-provider-logo" viewBox="0 0 48 48" aria-hidden="true">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                    </svg>
+                    <span>Sign in with Google</span>
+                </a>
+            }
+        </div>
+        <p class="signin-note">
+            The first time you sign in, an administrator has to give you access before you can see
+            anything.
+        </p>
+    }
+
+    <p class="signin-foot">This sign-in is for the troop treasurer and adult leadership. Parents and
+        guardians use the <a href="/portal/login">parent login</a>.</p>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    private bool _devAuth;
+    private bool _microsoft;
+    private bool _google;
+    private bool _failed;
+
+    private string Back => AdminIdentity.SafeReturnUrl(ReturnUrl);
+
+    private string DevLink(string role) =>
+        $"{DevAuth.SignInPath}?role={role}&returnUrl={Uri.EscapeDataString(Back)}";
+
+    protected override void OnInitialized()
+    {
+        // Already signed in with Microsoft or Google (e.g. an open page whose access just changed
+        // sent them back here): no need to pick a provider again -- carry on, and the page they
+        // land on reflects their current access.
+        if (HttpContext?.User is { } user && AdminIdentity.Key(user).Length > 0)
+        {
+            Navigation.NavigateTo(Back, forceLoad: true);
+            return;
+        }
+
+        _failed = Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("admin/sign-in-failed", StringComparison.OrdinalIgnoreCase);
+        _devAuth = DevAuth.IsEnabled(Configuration, Environment);
+        _microsoft = !_devAuth && !string.IsNullOrWhiteSpace(Configuration["AzureAd:ClientId"]);
+        // Same test as Program.cs, which only registers Google with both its id and its secret.
+        _google = !_devAuth
+            && !string.IsNullOrWhiteSpace(Configuration["Authentication:Google:ClientId"])
+            && !string.IsNullOrWhiteSpace(Configuration["Authentication:Google:ClientSecret"]);
+    }
+}

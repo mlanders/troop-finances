@@ -1,0 +1,84 @@
+@page "/admin/scouts/{Id}/rename"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutAccountService ScoutAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Services
+
+<PageTitle>Change Scout Name</PageTitle>
+
+<h1>Change Scout Name</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_statement is null)
+{
+    <div class="alert alert-danger">Scout not found.</div>
+}
+else
+{
+    <div class="card">
+        <p class="hint">The change is recorded in the ledger.</p>
+        <div class="field">
+            <label for="scoutName">Scout name</label>
+            <input id="scoutName" type="text" @bind="_newName" @bind:event="oninput" />
+        </div>
+        @if (_renameError is not null)
+        {
+            <div class="alert alert-danger">@_renameError</div>
+        }
+        <button class="btn btn-primary" disabled="@(!CanRename)" @onclick="RenameAsync">Save name</button>
+        <a class="btn btn-outline-danger" href="@($"/admin/scouts/{Id}")">Cancel</a>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _renaming;
+    private string? _renameError;
+    private Models.ScoutStatementModel? _statement;
+    private string _newName = string.Empty;
+
+    private bool CanRename =>
+        !_renaming && !string.IsNullOrWhiteSpace(_newName) && _newName.Trim() != _statement?.Scout.FullName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _statement = await ScoutAccountService.GetScoutStatementAsync(Id);
+        _newName = _statement?.Scout.FullName ?? string.Empty;
+        _loading = false;
+    }
+
+    private async Task RenameAsync()
+    {
+        if (!CanRename)
+        {
+            return;
+        }
+
+        _renaming = true;
+        _renameError = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var changedBy = authState?.User.Identity?.Name ?? "unknown";
+
+            await ScoutAccountService.RenameScoutAsync(Id, _newName, changedBy);
+            Navigation.NavigateTo($"/admin/scouts/{Id}");
+        }
+        catch (Exception)
+        {
+            _renameError = "Couldn't change the name. Please try again.";
+            _renaming = false;
+        }
+    }
+}

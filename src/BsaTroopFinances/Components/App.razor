@@ -1,0 +1,42 @@
+@inject TroopInfo Troop
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    @* viewport-fit=cover lets the installed app draw under a phone's notch and home bar; the
+       layouts pad themselves with env(safe-area-inset-*) to keep content clear of them. *@
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    @* Installable app: the manifest and icons for Android and Chrome; the apple-* tags for iPhone
+       and iPad, which ignore the manifest's icons and need an opaque PNG. *@
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#003f87" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="@Troop.ShortName" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["BsaTroopFinances.styles.css"]" />
+    <link rel="stylesheet" href="lib/fontawesome/css/fontawesome.min.css" />
+    <link rel="stylesheet" href="lib/fontawesome/css/solid.min.css" />
+    <ImportMap />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes />
+    <ReconnectModal />
+    <script src="amount-input.js"></script>
+    <script src="ellipsis-menu.js"></script>
+    <script src="chart-tooltip.js"></script>
+    <script src="pwa-install.js"></script>
+    <script src="mobile-nav.js"></script>
+    <script src="receipt-preview.js"></script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>

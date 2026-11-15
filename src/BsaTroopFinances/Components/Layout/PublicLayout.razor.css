@@ -1,0 +1,66 @@
+.public-header {
+    background: white;
+    border-bottom: 4px solid var(--tf-red);
+    box-shadow: 0 2px 12px rgba(7, 37, 74, 0.08);
+    padding: 0.9rem 1.5rem;
+    /* Clear of a notch when the installed app draws edge to edge (viewport-fit=cover). */
+    padding-top: max(0.9rem, env(safe-area-inset-top));
+    text-align: center;
+}
+
+.public-brand {
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-weight: 800;
+    color: var(--tf-navy);
+    font-size: 1.15rem;
+}
+
+.public-shell {
+    /* Header (~4rem) and footer (~3rem) together fill the rest of the window. */
+    min-height: calc(100vh - 7rem);
+    box-sizing: border-box;
+    padding: 1.5rem;
+    max-width: 640px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.public-footer {
+    display: flex;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 1rem 1.5rem max(1.25rem, env(safe-area-inset-bottom));
+    font-size: 0.85rem;
+    color: var(--tf-text-muted);
+}
+
+    .public-footer a {
+        color: var(--tf-text-muted);
+    }
+
+        .public-footer a:hover {
+            color: var(--tf-navy);
+        }
+
+#blazor-error-ui {
+    color-scheme: light only;
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }

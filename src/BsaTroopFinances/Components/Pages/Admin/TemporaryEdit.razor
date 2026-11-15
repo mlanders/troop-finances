@@ -1,0 +1,128 @@
+@page "/admin/settings/edit-access"
+@rendermode InteractiveServer
+@inject IAdminUserService AdminUsers
+@inject NavigationManager Navigation
+
+<PageTitle>Temporary Edit Access</PageTitle>
+
+<div class="page-header-row">
+    <h1>Temporary edit access</h1>
+    <a class="back-link" href="/admin/settings"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to settings</a>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card">
+    @if (_until is { } until)
+    {
+        <h2>Edit access is on</h2>
+        <p>You can make changes until <strong>@until.ToLocalTime().ToString("MMM d, h:mm tt")</strong>.
+            After that you're back to Read only on your own.</p>
+        <p class="hint">Temporary Edit can do treasurer work, but not change who has access.</p>
+        <button type="button" class="btn btn-secondary" disabled="@_busy" @onclick="EndAsync">End edit access now</button>
+    }
+    else if (_canTurnOn)
+    {
+        <h2>Turn on edit access</h2>
+        <p>You have Read-only access day to day. When something needs fixing, turn on Edit for a few
+            hours. It's recorded in Activity History with your reason, and ends on its own.</p>
+        @if (_allowedUntil is { } allowedUntil)
+        {
+            <p id="allowedThrough">You're allowed to turn it on through <strong>@allowedUntil.AddTicks(-1).ToLocalTime().ToString("MMM d, yyyy")</strong>.</p>
+        }
+        <div class="field">
+            <label for="editReason">Why do you need it?</label>
+            <textarea id="editReason" rows="3" maxlength="@AdminUserService.MaxEditReasonLength"
+                      @bind="_reason" @bind:event="oninput"
+                      placeholder="e.g. Fix the amount on the October dues invoice"></textarea>
+        </div>
+        <div class="field">
+            <label for="editHours">For how long?</label>
+            <select id="editHours" @bind="_hours">
+                @foreach (var duration in AdminUserService.TemporaryEditDurations)
+                {
+                    <option value="@duration.TotalHours">@(duration.TotalHours == 1 ? "1 hour" : $"{duration.TotalHours:0} hours")</option>
+                }
+            </select>
+        </div>
+        <button type="button" class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_reason))" @onclick="StartAsync">
+            Turn on edit access
+        </button>
+    }
+    else if (_isEditor)
+    {
+        <p>You already have Edit access.</p>
+    }
+    else
+    {
+        <p>You aren't set up to turn on Edit access yourself. If you need to make changes, ask an
+            Editor &mdash; they can allow it from <a href="/admin/settings/access">People &amp; Access</a>.</p>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private System.Security.Claims.ClaimsPrincipal _user = new();
+    private DateTimeOffset? _until;
+    private bool _canTurnOn;
+    private DateTimeOffset? _allowedUntil;
+    private bool _isEditor;
+    private bool _busy;
+    private string? _error;
+    private string _reason = string.Empty;
+    private double _hours = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _user = authState?.User ?? new();
+        _until = _user.TemporaryEditUntil();
+        _canTurnOn = _user.CanTurnOnEdit();
+        _isEditor = _user.IsStandingTroopFinanceWriter();
+        // When an Editor's permission ends; a Global admin's has no end.
+        if (_canTurnOn && await AdminUsers.ResolveAsync(_user) is { IsGlobalAdmin: false, CanTurnOnEditUntilUtc: { } allowedUntil })
+        {
+            _allowedUntil = allowedUntil;
+        }
+    }
+
+    private Task StartAsync() =>
+        ChangeAsync(() => AdminUsers.StartTemporaryEditAsync(_user, TimeSpan.FromHours(_hours), _reason));
+
+    private Task EndAsync() => ChangeAsync(() => AdminUsers.EndTemporaryEditAsync(_user));
+
+    private async Task ChangeAsync(Func<Task> change)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await change();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            _busy = false;
+            return;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save that change. Please reload the page and try again.";
+            _busy = false;
+            return;
+        }
+
+        // A full reload, so the next request is signed in with the new access straight away.
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+}

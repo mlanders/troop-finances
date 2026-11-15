@@ -1,0 +1,195 @@
+@page "/admin/reimbursements"
+@rendermode InteractiveServer
+@inject IReimbursementRequestRepository RequestRepository
+@inject PersistentComponentState ComponentState
+@inject IListViewRepository ViewRepository
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Reimbursements</PageTitle>
+
+<h1>Reimbursements</h1>
+
+@if (_canWrite)
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" href="/admin/reimbursements/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Submit a receipt for a guardian</a>
+    </div>
+}
+
+<div class="card">
+    <ListFilterBar List="@ListViewEntity.Reimbursements" StatusOptions="StatusOptions" DateLabel="Submitted"
+                   Filters="_filters" DefaultFilters="DefaultFilters" InitialViewId="@_initialViewId" OnChanged="FiltersChangedAsync" />
+
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (!DisplayedRequests.Any())
+    {
+        <p>No reimbursement requests here.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Reimbursement requests">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Submitted</th>
+                    <th>From</th>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var request in DisplayedRequests)
+                {
+                    <tr>
+                        <td>@request.SubmittedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                        <td>@request.SubmitterName<br /><span class="hint">@request.SubmitterEmail</span></td>
+                        <td>
+                            <div class="text-truncate" title="@request.Description">@request.Description</div>
+                            @if (!string.IsNullOrWhiteSpace(request.ScoutName))
+                            {
+                                <span class="hint">@request.ScoutName</span>
+                            }
+                        </td>
+                        <td class="money">@request.AmountRequested.ToString("C")</td>
+                        <td>
+                            <div class="status-cell">
+                                <span class="badge badge-@request.StatusValue.ToLowerInvariant()">@request.StatusValue</span>
+                                <a class="icon-link" href="@($"/admin/reimbursements/{request.RequestId}?guardianId={Uri.EscapeDataString(request.SubmitterGuardianId)}")"
+                                   title="@(_canWrite ? "Edit reimbursement" : "View reimbursement")" aria-label="@(_canWrite ? "Edit" : "View") reimbursement from @request.SubmitterName, @request.AmountRequested.ToString("C")">
+                                    <i class="fa-solid @(_canWrite ? "fa-pen" : "fa-eye")" aria-hidden="true"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <div class="row-actions" style="margin-top:0.75rem;">
+            <button class="btn btn-secondary" disabled="@(_page <= 1)" @onclick="GoToPreviousPageAsync">Previous</button>
+            <span class="hint">Page @_page of @TotalPages (@TotalCount request@(TotalCount == 1 ? "" : "s"))</span>
+            <button class="btn btn-secondary" disabled="@(!CanGoNext)" @onclick="GoToNextPageAsync">Next</button>
+        </div>
+    }
+</div>
+
+@code {
+    private const int PageSize = 25;
+    private const string FirstPageStateKeyBase = "reimbursements-first-page";
+
+    // Per view, so a page opened on a view never takes over an unfiltered first page (or vice versa).
+    private string FirstPageStateKey => string.IsNullOrEmpty(ViewId) ? FirstPageStateKeyBase : $"{FirstPageStateKeyBase}-{ViewId}";
+
+    private static readonly IReadOnlyList<(string Label, string? Value)> StatusOptions =
+    [
+        ("All", null), ("Pending", ReimbursementStatus.Pending), ("Approved", ReimbursementStatus.Approved),
+        ("Paid", ReimbursementStatus.Paid), ("Rejected", ReimbursementStatus.Rejected),
+    ];
+
+    private static readonly ListFilters DefaultFilters = new(ReimbursementStatus.Pending);
+
+    /// <summary>A saved view to open with (links and reloads of a picked view).</summary>
+    [SupplyParameterFromQuery(Name = "view")]
+    private string? ViewId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private ListFilters _filters = DefaultFilters;
+    private string? _initialViewId;
+    private int _loadNumber;
+    private int _page = 1;
+
+    // One page at a time straight from the database: status and dates are filtered there and
+    // TotalCount comes back with the page, so nothing beyond the 25 shown rows is loaded.
+    private Data.Repositories.PagedResult<Data.Entities.ReimbursementRequestEntity> _result = new([], 0);
+
+    private IReadOnlyList<Data.Entities.ReimbursementRequestEntity> DisplayedRequests => _result.Items;
+
+    private int TotalCount => _result.TotalCount;
+
+    private int TotalPages => _result.TotalPages(PageSize);
+
+    private bool CanGoNext => _page < TotalPages;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+
+        // Opened on a saved view: start with its filters, so even the prerendered first page is filtered.
+        if (!string.IsNullOrEmpty(ViewId) && await ViewRepository.GetAsync(ListViewEntity.Reimbursements, ViewId) is { } view)
+        {
+            _filters = ListFilters.FromView(view);
+            _initialViewId = view.ViewId;
+        }
+
+        // The first page is queried once, during prerender, and handed to the interactive render;
+        // every later page or filter change is fetched over the circuit.
+        if (ComponentState.TryTakeFromJson<Data.Repositories.PagedResult<Data.Entities.ReimbursementRequestEntity>>(FirstPageStateKey, out var persisted)
+            && persisted is not null)
+        {
+            _result = persisted;
+            _loading = false;
+            return;
+        }
+
+        ComponentState.RegisterOnPersisting(PersistStateAsync);
+        await LoadAsync();
+    }
+
+    private Task PersistStateAsync()
+    {
+        ComponentState.PersistAsJson(FirstPageStateKey, _result);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        // Typing a search starts a load per keystroke; only the newest one's answer is shown, so a
+        // slow earlier query can't overwrite a later one.
+        var loadNumber = ++_loadNumber;
+        var result = await RequestRepository.GetPageAsync(_filters.Status, _filters.FromTime, _filters.ToTime, _page, PageSize, _filters.Name, _filters.Description);
+        if (loadNumber == _loadNumber)
+        {
+            _result = result;
+            _loading = false;
+        }
+    }
+
+    private async Task FiltersChangedAsync(ListFilters filters)
+    {
+        _filters = filters;
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task GoToNextPageAsync()
+    {
+        if (!CanGoNext)
+        {
+            return;
+        }
+
+        _page++;
+        await LoadAsync();
+    }
+
+    private async Task GoToPreviousPageAsync()
+    {
+        if (_page <= 1)
+        {
+            return;
+        }
+
+        _page--;
+        await LoadAsync();
+    }
+}

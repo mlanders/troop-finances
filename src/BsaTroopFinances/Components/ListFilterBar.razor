@@ -1,0 +1,271 @@
+@* The filter bar for the admin Invoices and Reimbursements lists. Status buttons and the saved-view
+   picker stay in view; the date range, scout-or-guardian and description searches sit behind the
+   Filters button, which shows how many of them are on. Any admin can save the current filters as a
+   named view for every admin to pick; whoever saved it (or any Editor) can delete it. The page owns
+   the filters and reloads its list from OnChanged. *@
+@inject IListViewRepository ViewRepository
+@inject IFinanceAuditRepository AuditRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<div class="filter-bar">
+    <div class="filter-group" role="group" aria-label="Status filter">
+        <span class="filter-label">Status</span>
+        <div class="choice-grid-compact">
+            @foreach (var (label, value) in StatusOptions)
+            {
+                <button class="choice-btn choice-btn-compact @(Filters.Status == value ? "selected" : "")" @onclick="() => ChangeAsync(Filters with { Status = value })">@label</button>
+            }
+        </div>
+    </div>
+
+    <div class="filter-group">
+        <label class="filter-label" for="viewPicker">View</label>
+        <select id="viewPicker" class="view-picker" value="@(SelectedView?.ViewId ?? string.Empty)" @onchange="PickViewAsync">
+            <option value="">@(Filters == DefaultFilters ? "Default" : "Custom")</option>
+            @foreach (var view in _views)
+            {
+                <option value="@view.ViewId">@view.Name</option>
+            }
+        </select>
+        @if (SelectedView is { } selected && CanDelete(selected))
+        {
+            <button type="button" class="btn btn-ghost-danger btn-sm" @onclick="() => _confirmingDelete = true" title="Delete the saved view @selected.Name">
+                <i class="fa-solid fa-trash" aria-hidden="true"></i>Delete view
+            </button>
+        }
+    </div>
+
+    <button type="button" class="btn btn-secondary btn-sm filter-toggle @(_open ? "open" : "")" aria-expanded="@(_open ? "true" : "false")" aria-controls="filterPanel" @onclick="() => _open = !_open">
+        <i class="fa-solid fa-sliders" aria-hidden="true"></i>Filters
+        @if (Filters.PanelCount > 0)
+        {
+            <span class="filter-count" aria-label="@Filters.PanelCount on">@Filters.PanelCount</span>
+        }
+    </button>
+</div>
+
+@if (_confirmingDelete && SelectedView is { } toDelete)
+{
+    <div class="alert alert-danger filter-view-confirm">
+        <strong>Delete the saved view "@toDelete.Name" for every admin?</strong>
+        <div class="row-actions" style="margin-top:0.5rem;">
+            <button class="btn btn-danger btn-sm" disabled="@_busy" @onclick="() => DeleteViewAsync(toDelete)">Delete view</button>
+            <button class="btn btn-outline-danger btn-sm" disabled="@_busy" @onclick="() => _confirmingDelete = false">Cancel</button>
+        </div>
+    </div>
+}
+
+@if (_open)
+{
+    <div class="filter-panel" id="filterPanel">
+        <div class="filter-group">
+            <span class="filter-label">@DateLabel</span>
+            <input type="date" value="@Format(Filters.From)" @onchange="e => ChangeAsync(Filters with { From = ParseDate(e) })" aria-label="From date" />
+            <span>&ndash;</span>
+            <input type="date" value="@Format(Filters.To)" @onchange="e => ChangeAsync(Filters with { To = ParseDate(e) })" aria-label="To date" />
+        </div>
+
+        <div class="filter-group">
+            <label class="filter-label" for="nameSearch">Scout or guardian</label>
+            <input id="nameSearch" type="search" value="@Filters.Name" @oninput="e => ChangeAsync(Filters with { Name = e.Value?.ToString() })" placeholder="Start typing a name…" maxlength="200" />
+        </div>
+
+        <div class="filter-group">
+            <label class="filter-label" for="descriptionSearch">Description</label>
+            <input id="descriptionSearch" type="search" value="@Filters.Description" @oninput="e => ChangeAsync(Filters with { Description = e.Value?.ToString() })" placeholder="e.g. summer camp" maxlength="200" />
+        </div>
+
+        <div class="filter-panel-actions">
+            @if (Filters.PanelCount > 0)
+            {
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => ChangeAsync(Filters.WithoutPanelFilters())">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>Clear filters
+                </button>
+            }
+            @if (_naming)
+            {
+                <form class="filter-save-form" @onsubmit="SaveViewAsync">
+                    <label class="visually-hidden" for="viewName">Name for this view</label>
+                    <input id="viewName" type="text" maxlength="80" @bind="_viewName" placeholder="e.g. Summer camp 2026" />
+                    <button type="submit" class="btn btn-primary btn-sm" disabled="@_busy">Save view</button>
+                    <button type="button" class="btn btn-ghost btn-sm" disabled="@_busy" @onclick="() => { _naming = false; _saveError = null; }">Cancel</button>
+                </form>
+            }
+            else
+            {
+                <button type="button" class="btn btn-ghost btn-sm" @onclick="() => { _naming = true; _viewName = string.Empty; _saveError = null; }">
+                    <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>Save as view…
+                </button>
+            }
+        </div>
+        @if (_saveError is not null)
+        {
+            <div class="alert alert-danger">@_saveError</div>
+        }
+        <p class="hint filter-panel-hint">A saved view keeps the status, dates and searches above under a name every admin can pick.</p>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    /// <summary>Which list: <see cref="ListViewEntity.Invoices"/> or <see cref="ListViewEntity.Reimbursements"/>.</summary>
+    [Parameter, EditorRequired]
+    public string List { get; set; } = string.Empty;
+
+    /// <summary>The status buttons, in order: label and status value (null = All).</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<(string Label, string? Value)> StatusOptions { get; set; } = [];
+
+    /// <summary>"Issued" or "Submitted".</summary>
+    [Parameter]
+    public string DateLabel { get; set; } = "Date";
+
+    [Parameter, EditorRequired]
+    public ListFilters Filters { get; set; } = new(null);
+
+    /// <summary>What the page shows with no view picked (e.g. Outstanding only).</summary>
+    [Parameter, EditorRequired]
+    public ListFilters DefaultFilters { get; set; } = new(null);
+
+    /// <summary>The view the page was opened with (?view=), already applied to <see cref="Filters"/>.</summary>
+    [Parameter]
+    public string? InitialViewId { get; set; }
+
+    [Parameter]
+    public EventCallback<ListFilters> OnChanged { get; set; }
+
+    private IReadOnlyList<ListViewEntity> _views = [];
+    private string? _selectedViewId;
+    private bool _open;
+    private bool _naming;
+    private bool _busy;
+    private bool _confirmingDelete;
+    private string _viewName = string.Empty;
+    private string? _saveError;
+    private string _userName = string.Empty;
+    private bool _isEditor;
+
+    /// <summary>The picked view, while the filters still match it; any change makes it "Custom".</summary>
+    private ListViewEntity? SelectedView =>
+        _views.FirstOrDefault(v => v.ViewId == _selectedViewId) is { } view && ListFilters.FromView(view) == Filters ? view : null;
+
+    private string ListPath => $"/admin/{List}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthStateTask is not null ? (await AuthStateTask).User : null;
+        _userName = user?.Identity?.Name ?? string.Empty;
+        _isEditor = user?.IsTroopFinanceWriter() ?? false;
+        _selectedViewId = InitialViewId;
+        _views = await ViewRepository.GetForListAsync(List);
+    }
+
+    private bool CanDelete(ListViewEntity view) =>
+        _isEditor || (!string.IsNullOrEmpty(_userName) && string.Equals(view.CreatedBy, _userName, StringComparison.OrdinalIgnoreCase));
+
+    private async Task ChangeAsync(ListFilters filters)
+    {
+        _confirmingDelete = false;
+        var hadView = SelectedView is not null;
+        await OnChanged.InvokeAsync(filters);
+        // Leaving a view: take ?view= off the address so a reload or a copied link shows what's on screen.
+        if (hadView && ListFilters.FromView(_views.First(v => v.ViewId == _selectedViewId)) != filters)
+        {
+            _selectedViewId = null;
+            Navigation.NavigateTo(ListPath, replace: true);
+        }
+    }
+
+    private async Task PickViewAsync(ChangeEventArgs e)
+    {
+        _confirmingDelete = false;
+        var id = e.Value?.ToString();
+        var view = _views.FirstOrDefault(v => v.ViewId == id);
+        _selectedViewId = view?.ViewId;
+        await OnChanged.InvokeAsync(view is null ? DefaultFilters : ListFilters.FromView(view));
+        Navigation.NavigateTo(view is null ? ListPath : $"{ListPath}?view={Uri.EscapeDataString(view.ViewId)}", replace: true);
+    }
+
+    private async Task SaveViewAsync()
+    {
+        var name = _viewName.Trim();
+        if (name.Length == 0)
+        {
+            _saveError = "Give the view a name.";
+            return;
+        }
+        if (_views.Any(v => string.Equals(v.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _saveError = $"There's already a view called \"{name}\". Pick another name, or delete that one first.";
+            return;
+        }
+
+        _busy = true;
+        _saveError = null;
+        try
+        {
+            var view = new ListViewEntity
+            {
+                PartitionKey = List,
+                RowKey = Guid.NewGuid().ToString("N"),
+                Name = name,
+                Status = Filters.Status,
+                FromDate = Filters.From,
+                ToDate = Filters.To,
+                NameSearch = Filters.Name,
+                DescriptionSearch = Filters.Description,
+                CreatedBy = _userName,
+                CreatedUtc = DateTimeOffset.UtcNow,
+            };
+            await ViewRepository.AddAsync(view);
+            await AuditRepository.AddAsync(FinanceAuditEntityType.ListView, List, "View saved", _userName,
+                details: $"Saved the {List} view \"{name}\": {Filters.Describe()}.");
+
+            _views = await ViewRepository.GetForListAsync(List);
+            _selectedViewId = view.ViewId;
+            _naming = false;
+            Navigation.NavigateTo($"{ListPath}?view={Uri.EscapeDataString(view.ViewId)}", replace: true);
+        }
+        catch (Exception)
+        {
+            _saveError = "Couldn't save this view. Please try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteViewAsync(ListViewEntity view)
+    {
+        if (!CanDelete(view) || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await ViewRepository.DeleteAsync(List, view.ViewId);
+            await AuditRepository.AddAsync(FinanceAuditEntityType.ListView, List, "View deleted", _userName,
+                details: $"Deleted the {List} view \"{view.Name}\" (saved by {view.CreatedBy}).");
+            _views = await ViewRepository.GetForListAsync(List);
+            _selectedViewId = null;
+            _confirmingDelete = false;
+            // The rows on screen stay as they are -- now just "Custom" filters.
+            Navigation.NavigateTo(ListPath, replace: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string? Format(DateOnly? date) => date?.ToString("yyyy-MM-dd");
+
+    private static DateOnly? ParseDate(ChangeEventArgs e) =>
+        DateOnly.TryParse(e.Value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var date) ? date : null;
+}

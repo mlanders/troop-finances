@@ -1,0 +1,89 @@
+@page "/admin/scouts/bulk"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutRepository ScoutRepository
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Bulk Add Scouts</PageTitle>
+
+<h1>Bulk Add Scouts</h1>
+
+<div class="card">
+    <p class="hint">Paste a list of names -- comma or newline separated. Names already on the list are skipped.</p>
+    <div class="field">
+        <label for="bulkNames">Names</label>
+        <textarea id="bulkNames" rows="8" @bind="_bulkNames" placeholder="A. Smith, B. Jones, ..."></textarea>
+    </div>
+
+    @if (_bulkResult is not null)
+    {
+        <div class="alert alert-success">@_bulkResult</div>
+    }
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <button class="btn btn-primary" disabled="@(string.IsNullOrWhiteSpace(_bulkNames) || _bulkAdding)" @onclick="BulkAdd">Add all</button>
+    <a class="btn btn-outline-danger" href="/admin/scouts">Cancel</a>
+</div>
+
+@code {
+    private bool _bulkAdding;
+    private string? _bulkResult;
+    private string? _error;
+    private string _bulkNames = string.Empty;
+
+    private async Task BulkAdd()
+    {
+        if (string.IsNullOrWhiteSpace(_bulkNames) || _bulkAdding)
+        {
+            return;
+        }
+
+        _bulkAdding = true;
+        _bulkResult = null;
+        _error = null;
+        try
+        {
+            var names = _bulkNames
+                .Split(['\n', ','], StringSplitOptions.RemoveEmptyEntries)
+                .Select(n => n.Trim())
+                .Where(n => n.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var existingScouts = await ScoutRepository.GetAllAsync();
+            var existingNames = existingScouts.Select(s => s.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var toAdd = names.Where(n => !existingNames.Contains(n)).ToList();
+            var skipped = names.Count - toAdd.Count;
+
+            foreach (var name in toAdd)
+            {
+                var scout = new Data.Entities.ScoutEntity
+                {
+                    PartitionKey = Data.Entities.ScoutEntity.PartitionKeyValue,
+                    RowKey = Data.Entities.ScoutEntity.NewRowKey(),
+                    FullName = name,
+                    IsActive = true,
+                    CreatedUtc = DateTimeOffset.UtcNow,
+                    CachedBalance = 0,
+                    BalanceUpdatedUtc = DateTimeOffset.UtcNow,
+                };
+
+                await ScoutRepository.AddAsync(scout);
+            }
+
+            _bulkResult = $"Added {toAdd.Count} scouts." + (skipped > 0 ? $" Skipped {skipped} already on the list." : "");
+            _bulkNames = string.Empty;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't add these scouts. Please try again.";
+        }
+        finally
+        {
+            _bulkAdding = false;
+        }
+    }
+}

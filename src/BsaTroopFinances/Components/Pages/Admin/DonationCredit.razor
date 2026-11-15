@@ -1,0 +1,253 @@
+@page "/admin/donations/{Id}/credit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IDonationRepository DonationRepository
+@inject IDonationService DonationService
+@inject IScoutRepository ScoutRepository
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Credit a Donation to Scouts</PageTitle>
+
+<div class="page-header-row">
+    <h1>Credit to Scouts</h1>
+    <a class="back-link" href="@($"/admin/donations/{Id}")"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to donation</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_donation is null)
+{
+    <div class="alert alert-danger">Donation not found.</div>
+}
+else if (_donation.IsInKind)
+{
+    <div class="alert alert-danger">Donated goods can&rsquo;t be credited to scouts&rsquo; accounts.</div>
+}
+else
+{
+    <div class="card">
+        <h2>@_donation.Amount.ToString("C") from @_donation.DonorName</h2>
+        <p>@_donation.ReceivedDate.UtcDateTime.ToString("MMM d, yyyy")@(_donation.IsRestricted ? $" — for {_donation.Purpose}" : "")</p>
+        <p><strong>Already credited:</strong> @_credited.ToString("C")</p>
+        <p><strong>Left to credit:</strong> @Remaining.ToString("C")</p>
+        <p class="hint">Whatever isn&rsquo;t credited to scouts stays with the troop.</p>
+    </div>
+
+    @if (Remaining > 0)
+    {
+        <div class="card">
+            <div class="field">
+                <label for="splitMode">How to split it</label>
+                <select id="splitMode" @bind="_splitMode">
+                    <option value="@Even">Evenly across the scouts I choose</option>
+                    <option value="@Amounts">I&rsquo;ll enter each scout&rsquo;s amount</option>
+                </select>
+            </div>
+
+            <fieldset class="field check-list-field">
+                <legend>Scouts (@_selected.Count selected)</legend>
+                @foreach (var scout in _scouts)
+                {
+                    <div class="field-row">
+                        <label class="check-list-item">
+                            <input type="checkbox" checked="@_selected.Contains(scout.ScoutId)" @onchange="e => ToggleScout(scout.ScoutId, e)" />
+                            @scout.FullName
+                        </label>
+                        @if (_splitMode == Amounts && _selected.Contains(scout.ScoutId))
+                        {
+                            <input type="text" data-money-input inputmode="decimal" style="width:8rem;" aria-label="Amount for @scout.FullName" value="@_amountTexts.GetValueOrDefault(scout.ScoutId, "$0.00")" @oninput="e => SetScoutAmount(scout.ScoutId, e)" @onchange="e => CommitScoutAmount(scout.ScoutId, e)" />
+                        }
+                    </div>
+                }
+            </fieldset>
+
+            @if (_splitMode == Even)
+            {
+                <div class="field">
+                    <label for="amount">Total to credit (up to @Remaining.ToString("C"))</label>
+                    <input id="amount" data-money-input type="text" inputmode="decimal" value="@_totalText" @oninput="SetTotal" @onchange="CommitTotal" />
+                    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.5rem;" @onclick="UseAllRemaining">Use all @Remaining.ToString("C")</button>
+                </div>
+            }
+
+            @if (Shares.Count > 0)
+            {
+                <p><strong>Preview</strong> (@Shares.Sum(s => s.Amount).ToString("C") total)</p>
+                @if (Shares.Sum(s => s.Amount) > Remaining)
+                {
+                    <div class="alert alert-danger">That&rsquo;s more than the @Remaining.ToString("C") left to credit.</div>
+                }
+                <ul>
+                    @foreach (var share in Shares)
+                    {
+                        <li>@_scouts.First(s => s.ScoutId == share.ScoutId).FullName: <span class="money">@share.Amount.ToString("C")</span></li>
+                    }
+                </ul>
+            }
+
+            <div class="field">
+                <label for="description">Description on the scout&rsquo;s account</label>
+                <input id="description" type="text" @bind="_description" placeholder="@_donation.DefaultCreditDescription" />
+                <p class="hint">Families see this. Leave it blank to use &ldquo;@_donation.DefaultCreditDescription&rdquo;.</p>
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <button class="btn btn-primary" disabled="@(!CanSubmit || _saving)" @onclick="CreditAsync">Credit selected scouts</button>
+        </div>
+    }
+}
+
+@code {
+    private const string Even = "Even";
+    private const string Amounts = "Amounts";
+
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private DonationEntity? _donation;
+    private decimal _credited;
+    private IReadOnlyList<ScoutEntity> _scouts = [];
+
+    private string _splitMode = Even;
+    private readonly HashSet<string> _selected = [];
+    private decimal _total;
+    private string _totalText = "$0.00";
+    private readonly Dictionary<string, decimal> _amounts = [];
+    private readonly Dictionary<string, string> _amountTexts = [];
+    private string _description = string.Empty;
+
+    private decimal Remaining => Math.Max(0, (_donation?.Amount ?? 0) - _credited);
+
+    private IReadOnlyList<DonationCreditShare> Shares
+    {
+        get
+        {
+            var scouts = _scouts.Where(s => _selected.Contains(s.ScoutId)).OrderBy(s => s.FullName).ToList();
+            if (_splitMode == Amounts)
+            {
+                return scouts.Select(s => new DonationCreditShare(s.ScoutId, _amounts.GetValueOrDefault(s.ScoutId)))
+                    .Where(s => s.Amount > 0)
+                    .ToList();
+            }
+
+            return ShareSplitter.Split(scouts, scouts.Select(_ => 1m).ToList(), _total, s => s.FullName)
+                .Select(share => new DonationCreditShare(share.Item.ScoutId, share.Amount))
+                .ToList();
+        }
+    }
+
+    private bool CanSubmit
+    {
+        get
+        {
+            var shares = Shares;
+            return shares.Count > 0
+                && shares.Count == _selected.Count
+                && shares.Sum(s => s.Amount) <= Remaining;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _scouts = await ScoutRepository.GetActiveAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _donation = await DonationRepository.GetByIdAsync(Id);
+        if (_donation is not null)
+        {
+            _credited = (await DonationService.GetCreditsAsync(Id)).Sum(c => c.Amount);
+        }
+
+        _loading = false;
+    }
+
+    private async Task CreditAsync()
+    {
+        if (!CanSubmit || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            await DonationService.CreditScoutsAsync(Id, Shares, _description, authState?.User.Identity?.Name ?? "unknown");
+            Navigation.NavigateTo($"/admin/donations/{Id}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't credit the scouts. Nothing was saved; please try again.";
+            await LoadAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void ToggleScout(string scoutId, ChangeEventArgs e)
+    {
+        if (bool.TryParse(e.Value?.ToString(), out var selected) && selected)
+        {
+            _selected.Add(scoutId);
+        }
+        else
+        {
+            _selected.Remove(scoutId);
+        }
+    }
+
+    private void UseAllRemaining()
+    {
+        _total = Remaining;
+        _totalText = AmountInputParser.Format(_total);
+    }
+
+    private void SetTotal(ChangeEventArgs e)
+    {
+        // Doesn't touch _totalText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _total = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitTotal(ChangeEventArgs e)
+    {
+        SetTotal(e);
+        _totalText = AmountInputParser.Format(_total);
+    }
+
+    private void SetScoutAmount(string scoutId, ChangeEventArgs e)
+    {
+        _amounts[scoutId] = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitScoutAmount(string scoutId, ChangeEventArgs e)
+    {
+        SetScoutAmount(scoutId, e);
+        _amountTexts[scoutId] = AmountInputParser.Format(_amounts[scoutId]);
+    }
+}

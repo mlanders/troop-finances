@@ -1,0 +1,204 @@
+@page "/admin/invoices"
+@rendermode InteractiveServer
+@inject IInvoiceRepository InvoiceRepository
+@inject PersistentComponentState ComponentState
+@inject IListViewRepository ViewRepository
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Invoices</PageTitle>
+
+<div class="page-header-row">
+    <h1>Invoices</h1>
+    <p class="hint">Issuing an invoice charges a scout or adult. Printing changes nothing; to send families what they owe, print family bills from <a href="/admin/families">Families</a>.</p>
+</div>
+
+<div class="action-bar">
+    @if (_canWrite)
+    {
+        <a class="btn btn-primary" href="/admin/invoices/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Issue a new invoice</a>
+    }
+    <a class="btn btn-ghost" href="/admin/invoices/print-outstanding" target="_blank" rel="noopener"><i class="fa-solid fa-print" aria-hidden="true"></i>Print all outstanding</a>
+</div>
+
+<div class="card">
+    <ListFilterBar List="@ListViewEntity.Invoices" StatusOptions="StatusOptions" DateLabel="Issued"
+                   Filters="_filters" DefaultFilters="DefaultFilters" InitialViewId="@_initialViewId" OnChanged="FiltersChangedAsync" />
+
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (!DisplayedInvoices.Any())
+    {
+        <p>No invoices here.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Invoice list">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Issued</th>
+                    <th>Due date</th>
+                    <th>Billed to</th>
+                    <th>Description</th>
+                    <th>Paid from scout account</th>
+                    <th>Still owed</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var invoice in DisplayedInvoices)
+                {
+                    <tr>
+                        <td>@invoice.IssuedUtc.ToLocalTime().ToString("MMM d, yyyy")</td>
+                        <td>@(invoice.DueDate?.UtcDateTime.ToString("MMM d, yyyy") ?? "—")</td>
+                        <td>
+                            @invoice.BilledTo
+                            @if (invoice.IsForGuardian)
+                            {
+                                <br /><span class="hint">Adult</span>
+                            }
+                        </td>
+                        <td>@invoice.Description</td>
+                        <td class="money">@(invoice.AmountAppliedFromAccount > 0 ? invoice.AmountAppliedFromAccount.ToString("C") : "—")</td>
+                        @{ var stillOwed = invoice.StatusValue == InvoiceStatus.Outstanding; }
+                        <td class="money @(stillOwed && invoice.AmountDueFromFamily > 0 ? "money-negative" : "")">@(stillOwed ? invoice.AmountDueFromFamily.ToString("C") : "—")</td>
+                        <td class="money">@invoice.TotalAmount.ToString("C")</td>
+                        <td>
+                            <div class="status-cell">
+                                <span class="badge badge-@invoice.StatusValue.ToLowerInvariant()">@invoice.StatusValue</span>
+                                <a class="icon-link" href="@($"/admin/invoices/{invoice.InvoiceId}?scoutId={Uri.EscapeDataString(invoice.OwnerId)}")"
+                                   title="@(_canWrite ? "Edit invoice" : "View invoice")" aria-label="@(_canWrite ? "Edit" : "View") invoice for @invoice.BilledTo, @invoice.Description">
+                                    <i class="fa-solid @(_canWrite ? "fa-pen" : "fa-eye")" aria-hidden="true"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <div class="row-actions" style="margin-top:0.75rem;">
+            <button class="btn btn-secondary" disabled="@(_page <= 1)" @onclick="GoToPreviousPageAsync">Previous</button>
+            <span class="hint">Page @_page of @TotalPages (@TotalCount invoice@(TotalCount == 1 ? "" : "s"))</span>
+            <button class="btn btn-secondary" disabled="@(!CanGoNext)" @onclick="GoToNextPageAsync">Next</button>
+        </div>
+    }
+</div>
+
+@code {
+    private const int PageSize = 25;
+    private const string FirstPageStateKeyBase = "invoices-first-page";
+
+    // Per view, so a page opened on a view never takes over an unfiltered first page (or vice versa).
+    private string FirstPageStateKey => string.IsNullOrEmpty(ViewId) ? FirstPageStateKeyBase : $"{FirstPageStateKeyBase}-{ViewId}";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private static readonly IReadOnlyList<(string Label, string? Value)> StatusOptions =
+        [("All", null), ("Outstanding", InvoiceStatus.Outstanding), ("Paid", InvoiceStatus.Paid), ("Voided", InvoiceStatus.Voided)];
+
+    private static readonly ListFilters DefaultFilters = new(InvoiceStatus.Outstanding);
+
+    /// <summary>A saved view to open with (links and reloads of a picked view).</summary>
+    [SupplyParameterFromQuery(Name = "view")]
+    private string? ViewId { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private ListFilters _filters = DefaultFilters;
+    private string? _initialViewId;
+    private int _loadNumber;
+    private int _page = 1;
+
+    // One page at a time straight from the database: status and dates are filtered there and
+    // TotalCount comes back with the page, so nothing beyond the 25 shown rows is loaded.
+    private Data.Repositories.PagedResult<Data.Entities.InvoiceEntity> _result = new([], 0);
+
+    private IReadOnlyList<Data.Entities.InvoiceEntity> DisplayedInvoices => _result.Items;
+
+    private int TotalCount => _result.TotalCount;
+
+    private int TotalPages => _result.TotalPages(PageSize);
+
+    private bool CanGoNext => _page < TotalPages;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+
+        // Opened on a saved view: start with its filters, so even the prerendered first page is filtered.
+        if (!string.IsNullOrEmpty(ViewId) && await ViewRepository.GetAsync(ListViewEntity.Invoices, ViewId) is { } view)
+        {
+            _filters = ListFilters.FromView(view);
+            _initialViewId = view.ViewId;
+        }
+
+        // The first page is queried once, during prerender, and handed to the interactive render;
+        // every later page or filter change is fetched over the circuit.
+        if (ComponentState.TryTakeFromJson<Data.Repositories.PagedResult<Data.Entities.InvoiceEntity>>(FirstPageStateKey, out var persisted)
+            && persisted is not null)
+        {
+            _result = persisted;
+            _loading = false;
+            return;
+        }
+
+        ComponentState.RegisterOnPersisting(PersistStateAsync);
+        await LoadAsync();
+    }
+
+    private Task PersistStateAsync()
+    {
+        ComponentState.PersistAsJson(FirstPageStateKey, _result);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        // Typing a search starts a load per keystroke; only the newest one's answer is shown, so a
+        // slow earlier query can't overwrite a later one.
+        var loadNumber = ++_loadNumber;
+        var result = await InvoiceRepository.GetPageAsync(_filters.Status, _filters.FromTime, _filters.ToTime, _page, PageSize, _filters.Name, _filters.Description);
+        if (loadNumber == _loadNumber)
+        {
+            _result = result;
+            _loading = false;
+        }
+    }
+
+    private async Task FiltersChangedAsync(ListFilters filters)
+    {
+        _filters = filters;
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task GoToNextPageAsync()
+    {
+        if (!CanGoNext)
+        {
+            return;
+        }
+
+        _page++;
+        await LoadAsync();
+    }
+
+    private async Task GoToPreviousPageAsync()
+    {
+        if (_page <= 1)
+        {
+            return;
+        }
+
+        _page--;
+        await LoadAsync();
+    }
+
+}

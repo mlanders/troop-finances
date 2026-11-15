@@ -1,0 +1,82 @@
+# One-click setup on Render (the "Deploy to Render" button in README.md): the app from the
+# Dockerfile, a PostgreSQL database, and a disk for receipts and backups. Render asks for each
+# value marked "sync: false" while creating it; see infra/SETUP.md for what to have ready.
+#
+# Costs about $7/month (the app) + $6/month (the database) + a few cents for the disk; Render's
+# free plans can't be used (no disks, and free databases expire).
+
+services:
+  - type: web
+    name: troop-finances
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    numInstances: 1            # one copy only: each open page is connected to it (infra/HOSTING.md)
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: PORT
+        value: 8080            # the port the image listens on
+      # ---- Your troop (infra/HOSTING.md "Your troop's settings"). The site's address is Render's
+      # own until you add Troop__SiteUrl for a domain of your own. ----
+      - key: Troop__Name
+        sync: false            # e.g. Troop 52
+      - key: Troop__ContactEmail
+        sync: false            # e.g. treasurer@troop52.org
+      - key: Troop__TimeZone
+        sync: false            # e.g. America/Chicago
+      # ---- Who runs it ----
+      - key: Auth__GlobalAdmins__0
+        sync: false            # the system admin's email
+      - key: Auth__BootstrapEditors__0
+        sync: false            # the first Editor's email (usually the treasurer, or you)
+      - key: Auth__LoginCodePepper
+        generateValue: true    # never change it once set
+      # ---- Admin sign-in with Google (Microsoft can be added later; see infra/SETUP.md) ----
+      - key: Authentication__Google__ClientId
+        sync: false
+      - key: Authentication__Google__ClientSecret
+        sync: false
+      # ---- Email: guardians' sign-in codes and notices ----
+      - key: Email__Provider
+        value: Smtp
+      - key: Email__SenderAddress
+        sync: false            # e.g. noreply@troop52.org
+      - key: Email__Smtp__Host
+        sync: false            # e.g. smtp.resend.com
+      - key: Email__Smtp__Port
+        value: 587
+      - key: Email__Smtp__Username
+        sync: false
+      - key: Email__Smtp__Password
+        sync: false
+      # ---- Database and files ----
+      - key: Database__Provider
+        value: Postgres
+      - key: ConnectionStrings__FinanceDb
+        fromDatabase:
+          name: troop-finances-db
+          property: connectionString
+      - key: Storage__Provider
+        value: FileSystem
+      - key: Storage__FileSystem__Root
+        value: /app/data/files
+      # Nightly backups go to the same disk: enough to undo a mistake, but not a copy kept
+      # somewhere else. infra/SETUP.md says how to send them to a separate bucket instead.
+      - key: BackupStorage__Provider
+        value: FileSystem
+      - key: BackupStorage__FileSystem__Root
+        value: /app/data/backups
+
+databases:
+  - name: troop-finances-db
+    plan: basic-256mb
+    databaseName: troop_finances
+    user: troop
+    postgresMajorVersion: "17"

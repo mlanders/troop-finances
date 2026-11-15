@@ -1,0 +1,192 @@
+@page "/admin/fundraisers/{Id}"
+@rendermode InteractiveServer
+@inject IFundraiserEventRepository FundraiserRepository
+@inject IScoutLedgerRepository LedgerRepository
+@inject IScoutRepository ScoutRepository
+@inject IFinanceAuditRepository AuditRepository
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Fundraiser Details</PageTitle>
+
+<div class="page-header-row">
+    <h1>Fundraiser Details</h1>
+    <a class="back-link" href="/admin/fundraisers"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to fundraisers</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_event is null)
+{
+    <div class="alert alert-danger">Fundraiser not found.</div>
+}
+else
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" href="@($"/admin/fundraisers/{_event.EventId}/allocate")"><i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i>Allocate proceeds</a>
+        @if (_canWrite)
+        {
+            <a class="btn btn-ghost" href="@($"/admin/fundraisers/{_event.EventId}/edit")"><i class="fa-solid fa-pen" aria-hidden="true"></i>Edit fundraiser</a>
+            <button class="btn btn-ghost" disabled="@_saving" @onclick="ToggleStatusAsync">
+                <i class="fa-solid @(IsOpen ? "fa-lock" : "fa-lock-open")" aria-hidden="true"></i>@(IsOpen ? "Close fundraiser" : "Reopen fundraiser")
+            </button>
+        }
+    </div>
+
+    <div class="card">
+        @if (_statusError is not null)
+        {
+            <div class="alert alert-danger">@_statusError</div>
+        }
+        <h2>@_event.Name</h2>
+        <p><strong>Date:</strong> @_event.EventDate.UtcDateTime.ToString("MMM d, yyyy")</p>
+        <p><strong>Status:</strong> @_event.StatusValue
+            @if (!IsOpen)
+            {
+                <span class="hint"> &mdash; hidden from the dashboard's active fundraisers</span>
+            }
+        </p>
+        <p><strong>Total raised:</strong> @(_event.TotalRaised?.ToString("C") ?? "—")</p>
+        <p><strong>Expenses:</strong> @(_event.TotalExpenses?.ToString("C") ?? "—")</p>
+        <p><strong>Goal:</strong> @(_event.GoalAmount?.ToString("C") ?? "Not set")</p>
+        <p><strong>Allocated to scouts:</strong> @_allocatedTotal.ToString("C")</p>
+        <p><strong>Remaining:</strong> @_remaining.ToString("C")</p>
+        @if (!string.IsNullOrWhiteSpace(_event.Description))
+        {
+            <p><strong>Description:</strong> @_event.Description</p>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Allocations by scout</h2>
+        @if (_allocations.Count == 0)
+        {
+            <p>No proceeds have been allocated.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Allocations by scout">
+            <table class="report-table">
+                <thead><tr><th>Scout</th><th>Amount</th><th>Hours</th></tr></thead>
+                <tbody>
+                    @foreach (var item in _allocations)
+                    {
+                        <tr><td>@item.ScoutName</td><td class="money">@item.Amount.ToString("C")</td><td>@(item.Hours?.ToString("0.##") ?? "—")</td></tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Action history</h2>
+        @if (_history.Count == 0)
+        {
+            <p class="hint">No recorded actions yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Fundraiser action history">
+            <table class="report-table">
+                <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Details / note</th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _history)
+                    {
+                        <tr>
+                            <td>@entry.OccurredUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@entry.Action</td>
+                            <td>@entry.Actor</td>
+                            <td><div class="cell-wrap cell-wrap-wide">@entry.Details @entry.Notes</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _statusError;
+    private Data.Entities.FundraiserEventEntity? _event;
+    private decimal _allocatedTotal;
+    private decimal _remaining;
+    private IReadOnlyList<(string ScoutName, decimal Amount, decimal? Hours)> _allocations = [];
+    private IReadOnlyList<Data.Entities.FinanceAuditEntryEntity> _history = [];
+
+    private bool IsOpen => _event?.StatusValue != Data.Entities.FundraiserEventStatus.Closed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _event = await FundraiserRepository.GetByIdAsync(Id);
+        if (_event is not null)
+        {
+            var scouts = await ScoutRepository.GetAllAsync();
+            var names = scouts.ToDictionary(s => s.ScoutId, s => s.FullName);
+            var ledger = await LedgerRepository.GetForSourceAsync(Data.Entities.LedgerSourceType.FundraiserAllocation, Id);
+            _allocations = ledger.GroupBy(e => e.PartitionKey)
+                .Select(group => (
+                    ScoutName: names.GetValueOrDefault(group.Key, group.Key),
+                    Amount: group.Sum(e => e.Amount),
+                    Hours: group.Any(e => e.HoursWorked.HasValue)
+                        ? group.Sum(e => (decimal?)(e.HoursWorked ?? 0))
+                        : null))
+                .OrderBy(item => item.ScoutName)
+                .ToList();
+            _allocatedTotal = _allocations.Sum(item => item.Amount);
+            _remaining = Math.Max(0, _event.NetProceeds - _allocatedTotal);
+            _history = await AuditRepository.GetForEntityAsync(Data.Entities.FinanceAuditEntityType.Fundraiser, Id);
+        }
+        _loading = false;
+    }
+
+    private async Task ToggleStatusAsync()
+    {
+        if (!_canWrite || _event is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _statusError = null;
+        var closing = IsOpen;
+        try
+        {
+            _event.StatusValue = closing ? Data.Entities.FundraiserEventStatus.Closed : Data.Entities.FundraiserEventStatus.Open;
+            await FundraiserRepository.UpdateAsync(_event);
+
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var actor = authState?.User.Identity?.Name ?? "unknown";
+            await AuditRepository.AddAsync(Data.Entities.FinanceAuditEntityType.Fundraiser, Id, closing ? "Closed" : "Reopened", actor);
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _statusError = closing ? "Couldn't close the fundraiser. Please try again." : "Couldn't reopen the fundraiser. Please try again.";
+            await LoadAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

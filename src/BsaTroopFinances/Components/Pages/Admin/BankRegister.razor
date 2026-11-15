@@ -1,0 +1,263 @@
+@page "/admin/bank/accounts/{Id}"
+@rendermode InteractiveServer
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>@(_account?.Name ?? "Account")</PageTitle>
+
+<div class="page-header-row">
+    <h1>@(_account?.Name ?? "Account")</h1>
+    <a class="back-link" href="/admin/bank"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to accounts</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_account is null)
+{
+    <div class="alert alert-danger">Account not found.</div>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="card stat-card stat-card-navy">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-building-columns" aria-hidden="true"></i></span>
+                <h3>Balance</h3>
+            </div>
+            <p class="stat-card-number money" id="balance">@Balance.ToString("C")</p>
+            <p class="hint">@_account.Kind account@(_account.IsActive ? "" : ", inactive"); opened with @_account.OpeningBalance.ToString("C") on @_account.OpeningDate.UtcDateTime.ToString("MMM d, yyyy")</p>
+        </div>
+        <div class="card stat-card stat-card-green">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-check-double" aria-hidden="true"></i></span>
+                <h3>Cleared by the bank</h3>
+            </div>
+            <p class="stat-card-number money">@ClearedBalance.ToString("C")</p>
+            <p class="hint">@_entries.Count(e => !e.IsCleared) entr@(_entries.Count(e => !e.IsCleared) == 1 ? "y" : "ies") not yet on a reconciled statement</p>
+        </div>
+    </div>
+
+    @if (_canWrite)
+    {
+        <div class="action-bar">
+            @if (_account.IsActive)
+            {
+                <a class="btn btn-ghost" href="@NewEntryUrl(TroopTransactionKind.Expense)"><i class="fa-solid fa-receipt" aria-hidden="true"></i>Record an expense</a>
+                <a class="btn btn-ghost" href="@NewEntryUrl(TroopTransactionKind.BankFee)"><i class="fa-solid fa-plus" aria-hidden="true"></i>Other entry</a>
+                <a class="btn btn-ghost" href="@($"/admin/bank/transfer?from={_account.AccountId}")"><i class="fa-solid fa-right-left" aria-hidden="true"></i>Transfer</a>
+            }
+            <a class="btn btn-ghost" href="@($"/admin/bank/accounts/{_account.AccountId}/edit")"><i class="fa-solid fa-pen" aria-hidden="true"></i>Edit account</a>
+        </div>
+    }
+
+    <div class="card">
+        <div class="filter-bar">
+            <div class="filter-group" role="group" aria-label="Entries to show">
+                <span class="filter-label">Show</span>
+                <div class="choice-grid-compact">
+                    <button class="choice-btn choice-btn-compact @(!_unclearedOnly ? "selected" : "")" @onclick="() => _unclearedOnly = false">All</button>
+                    <button class="choice-btn choice-btn-compact @(_unclearedOnly ? "selected" : "")" @onclick="() => _unclearedOnly = true">Not yet cleared</button>
+                </div>
+            </div>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        @if (_rows.Count == 0)
+        {
+            <p>No entries yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Register">
+            <table class="report-table">
+                <thead>
+                    <tr><th>Date</th><th>Description</th><th>Ref.</th><th>Money in</th><th>Money out</th><th>Balance</th><th><span class="visually-hidden">Cleared</span></th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var (entry, balance) in Displayed)
+                    {
+                        <tr>
+                            <td>@entry.Date.UtcDateTime.ToString("MMM d, yyyy")</td>
+                            <td>
+                                <div class="cell-wrap">
+                                    @if (entry.Payee.Length > 0)
+                                    {
+                                        <strong>@entry.Payee</strong>
+                                        @if (entry.Description.Length > 0)
+                                        {
+                                            <span> &mdash; </span>
+                                        }
+                                    }
+                                    @entry.Description
+                                    @if (entry.HasReceipt)
+                                    {
+                                        <a href="@ReceiptUrl(entry)" target="_blank" rel="noopener" title="Receipt" style="margin-left:0.35rem;"><i class="fa-solid fa-paperclip" aria-hidden="true"></i><span class="visually-hidden">Receipt</span></a>
+                                    }
+                                </div>
+                                <div class="hint">@entry.Kind</div>
+                            </td>
+                            <td>@entry.Reference</td>
+                            <td class="money">@(entry.Amount > 0 ? entry.Amount.ToString("C") : "")</td>
+                            <td class="money money-negative">@(entry.Amount < 0 ? (-entry.Amount).ToString("C") : "")</td>
+                            <td class="money">@balance.ToString("C")</td>
+                            <td>
+                                @if (entry.IsCleared)
+                                {
+                                    <i class="fa-solid fa-check" title="Cleared on a reconciled statement" aria-label="Cleared"></i>
+                                }
+                            </td>
+                            <td>
+                                @if (MenuItems(entry) is { Count: > 0 } items)
+                                {
+                                    <div class="ellipsis-menu">
+                                        <input type="checkbox" id="@($"entryMenu-{entry.RowKey}")" class="ellipsis-menu-check" />
+                                        <label for="@($"entryMenu-{entry.RowKey}")" class="ellipsis-menu-toggle" aria-label="More actions for this entry">
+                                            <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                        </label>
+                                        <div class="ellipsis-menu-panel">
+                                            @foreach (var (label, icon, href) in items)
+                                            {
+                                                <a class="ellipsis-menu-item" href="@href"><i class="fa-solid @icon" aria-hidden="true"></i> @label</a>
+                                            }
+                                            @if (CanDelete(entry))
+                                            {
+                                                <button type="button" class="ellipsis-menu-item ellipsis-menu-item-danger" @onclick="() => _pendingDelete = entry">
+                                                    <i class="fa-solid fa-trash" aria-hidden="true"></i> Delete
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                        @if (_pendingDelete == entry)
+                        {
+                            <tr>
+                                <td colspan="8">
+                                    <div class="alert alert-danger" style="margin:0;">
+                                        <strong>@DeleteQuestion(entry)</strong>
+                                        <div class="row-actions" style="margin-top:0.5rem;">
+                                            <button class="btn btn-danger btn-sm" disabled="@_saving" @onclick="() => DeleteAsync(entry)">Confirm delete</button>
+                                            <button class="btn btn-outline-danger btn-sm" disabled="@_saving" @onclick="() => _pendingDelete = null">Cancel</button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _canWrite;
+    private bool _saving;
+    private bool _unclearedOnly;
+    private string? _error;
+    private TroopAccountEntity? _account;
+    private IReadOnlyList<TroopTransactionEntity> _entries = [];
+    private TroopTransactionEntity? _pendingDelete;
+
+    // Oldest first, each with the balance after it.
+    private List<(TroopTransactionEntity Entry, decimal Balance)> _rows = [];
+
+    private decimal Balance => _account!.OpeningBalance + _entries.Sum(e => e.Amount);
+
+    private decimal ClearedBalance => _account!.OpeningBalance + _entries.Where(e => e.IsCleared).Sum(e => e.Amount);
+
+    // Newest first, as on a bank's website.
+    private IEnumerable<(TroopTransactionEntity Entry, decimal Balance)> Displayed =>
+        Enumerable.Reverse(_rows).Where(r => !_unclearedOnly || !r.Entry.IsCleared);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _account = await BankRepository.GetAccountAsync(Id);
+        if (_account is not null)
+        {
+            _entries = await BankRepository.GetTransactionsAsync(Id);
+            var balance = _account.OpeningBalance;
+            _rows = _entries.Select(e => (e, balance += e.Amount)).ToList();
+        }
+
+        _loading = false;
+    }
+
+    private string NewEntryUrl(string kind) => $"/admin/bank/entries/new?kind={Uri.EscapeDataString(kind)}&account={Id}";
+
+    private string ReceiptUrl(TroopTransactionEntity entry) => $"/admin/bank/accounts/{entry.AccountId}/entries/{Uri.EscapeDataString(entry.RowKey)}/receipt";
+
+    /// <summary>Where an entry came from, and (for an editor) how to change it.</summary>
+    private List<(string Label, string Icon, string Href)> MenuItems(TroopTransactionEntity entry)
+    {
+        var items = new List<(string, string, string)>();
+        switch (entry.SourceType)
+        {
+            case TroopTransactionSource.Deposit:
+                items.Add(("View deposit", "fa-money-bill-transfer", $"/admin/bank/deposits/{entry.SourceId}"));
+                break;
+            case TroopTransactionSource.Reimbursement:
+                items.Add(("View reimbursement", "fa-sack-dollar", $"/admin/reimbursements/{entry.SourceId}"));
+                break;
+        }
+        if (_canWrite && !entry.IsCleared && (TroopTransactionKind.IsManual(entry.Kind) || entry.Kind == TroopTransactionKind.ReimbursementPayout))
+        {
+            items.Add(("Edit", "fa-pen", $"/admin/bank/accounts/{entry.AccountId}/entries/{Uri.EscapeDataString(entry.RowKey)}"));
+        }
+
+        return CanDelete(entry) || items.Count > 0 ? items : [];
+    }
+
+    private bool CanDelete(TroopTransactionEntity entry) =>
+        _canWrite && !entry.IsCleared && entry.SourceType != TroopTransactionSource.Reimbursement;
+
+    private static string DeleteQuestion(TroopTransactionEntity entry) => entry.SourceType switch
+    {
+        TroopTransactionSource.Deposit => "Delete this deposit? Its payments and donations will wait to be deposited again.",
+        TroopTransactionSource.Transfer => "Delete this transfer? Both sides of it are removed.",
+        _ => "Delete this entry? This can't be undone.",
+    };
+
+    private async Task DeleteAsync(TroopTransactionEntity entry)
+    {
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+            await TroopAccountService.DeleteEntryAsync(entry.AccountId, entry.RowKey, actor);
+            _pendingDelete = null;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

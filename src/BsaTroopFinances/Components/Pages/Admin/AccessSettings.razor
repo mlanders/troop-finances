@@ -1,0 +1,495 @@
+@page "/admin/settings/access"
+@rendermode InteractiveServer
+@inject IAdminUserService AdminUsers
+@inject TimeProvider TimeProvider
+
+<PageTitle>People &amp; Access</PageTitle>
+
+<div class="page-header-row">
+    <PageHelp Heading="People & Access">
+        <p>Anyone can sign in to the admin area with a Microsoft or Google account, but they see nothing
+            until an Editor gives them access. <strong>Read only</strong> can view treasurer data;
+            <strong>Edit</strong> can also make changes, including who has access.</p>
+        <p>The <strong>Global admin</strong> is set in the app's settings, not here. They have Read only,
+            but can <strong>turn on Edit themselves</strong> for a few hours when they need it. An Editor
+            or the Global admin can allow someone else with Read only to do the same, through a last day
+            the Editor picks. Every time it's turned on, Editors and the committee chair are emailed and
+            it's recorded in Activity History. Temporary Edit can't change who has access.</p>
+    </PageHelp>
+    <a class="back-link" href="/admin/settings"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to settings</a>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card">
+    <h2>Access requests</h2>
+    <p class="hint">Someone new? Ask them to sign in at <code>/admin</code> first &mdash; they'll appear here.</p>
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (!Requests.Any())
+    {
+        <p class="hint">No one is waiting for access.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Access requests">
+        <table class="report-table stack-narrow">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Signs in with</th>
+                    <th>First signed in</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var person in Requests)
+                {
+                    <tr>
+                        <td class="stack-name">@person.Name</td>
+                        <td data-label="Email" class="stack-email">@person.Email</td>
+                        <td data-label="Signs in with">@SignInPills(person)</td>
+                        <td data-label="First signed in">@person.FirstSeenUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                        <td class="stack-menu">
+                            @if (_canWrite)
+                            {
+                                <div class="ellipsis-menu">
+                                    <input type="checkbox" id="@MenuId(person)" class="ellipsis-menu-check" />
+                                    <label for="@MenuId(person)" class="ellipsis-menu-toggle" aria-label="Actions for @person.Name">
+                                        <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                    </label>
+                                    <div class="ellipsis-menu-panel">
+                                        <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => SetRoleAsync(person, AdminAccessRole.Viewer)">
+                                            <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                                            Give read-only access
+                                        </button>
+                                        <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => SetRoleAsync(person, AdminAccessRole.Editor)">
+                                            <i class="fa-solid fa-pen" aria-hidden="true"></i>
+                                            Give edit access
+                                        </button>
+                                        @CombineItems(person)
+                                        <button type="button" class="ellipsis-menu-item ellipsis-menu-item-danger" disabled="@_busy" @onclick="() => StartRemove(person)">
+                                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                            Dismiss request
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                    @if (_pendingRemove == person.RowKey)
+                    {
+                        <tr>
+                            <td colspan="5">@RemoveConfirmation(person)</td>
+                        </tr>
+                    }
+                    @if (_pendingCombine?.UserKey == person.RowKey)
+                    {
+                        <tr>
+                            <td colspan="5">@CombineConfirmation(person)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+<div class="card">
+    <h2>People with access</h2>
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (!WithAccess.Any())
+    {
+        <p class="hint">No one has access yet.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="People with access">
+        <table class="report-table stack-narrow">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Signs in with</th>
+                    <th>Access</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var person in WithAccess)
+                {
+                    var isMe = person.RowKey == _myKey;
+                    <tr>
+                        <td class="stack-name">
+                            @person.Name
+                            @if (isMe)
+                            {
+                                <span class="hint"> (you)</span>
+                            }
+                            @if (person.IsCommitteeChair)
+                            {
+                                <span class="badge badge-pending" title="Gets a copy of the Edit access granted email">Committee chair</span>
+                            }
+                            @if (person.IsGlobalAdmin)
+                            {
+                                <span class="badge badge-pending" title="Set in the app's settings (Auth:GlobalAdmins). Read only, but can turn on Edit for a few hours, and allow others to.">Global admin</span>
+                            }
+                        </td>
+                        <td data-label="Email" class="stack-email">@person.Email</td>
+                        <td data-label="Signs in with">@SignInPills(person)</td>
+                        <td data-label="Access">
+                            <div class="badge-stack">
+                            <span class="badge @(person.Role == AdminAccessRole.Editor ? "badge-paid" : "badge-approved")">@AdminAccessRole.DisplayName(person.Role)</span>
+                            @if (person.IsTemporaryEditOn(_now))
+                            {
+                                <span class="badge badge-paid" title="@person.EditReason">Edit until @person.EditUntilUtc!.Value.ToLocalTime().ToString("h:mm tt")</span>
+                            }
+                            else if (person.CanElevate(_now))
+                            {
+                                <span class="badge badge-pending" title="Can turn on Edit for a few hours when needed">@AllowanceLabel(person)</span>
+                            }
+                            else if (person is { Role: AdminAccessRole.Viewer, CanTurnOnEdit: true } && LastAllowedDay(person) is { } ended)
+                            {
+                                <span class="badge badge-voided" title="The permission to turn on Edit has run out">Temporary edit ended @ended.ToString("MMM d")</span>
+                            }
+                            </div>
+                        </td>
+                        <td class="stack-menu">
+                            @if (_canWrite || (_canAllowTemporaryEdit && !isMe && CanBeAllowedTemporaryEdit(person)))
+                            {
+                                <div class="ellipsis-menu">
+                                    <input type="checkbox" id="@MenuId(person)" class="ellipsis-menu-check" />
+                                    <label for="@MenuId(person)" class="ellipsis-menu-toggle" aria-label="Actions for @person.Name">
+                                        <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                    </label>
+                                    <div class="ellipsis-menu-panel">
+                                        @* Nobody changes their own access: it stops an Editor
+                                           locking themselves out by accident. *@
+                                        @if (!isMe && _canWrite)
+                                        {
+                                            @if (person.Role == AdminAccessRole.Editor)
+                                            {
+                                                <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => SetRoleAsync(person, AdminAccessRole.Viewer)">
+                                                    <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                                                    Change to read only
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => SetRoleAsync(person, AdminAccessRole.Editor)">
+                                                    <i class="fa-solid fa-pen" aria-hidden="true"></i>
+                                                    Change to edit
+                                                </button>
+                                            }
+                                        }
+                                        @if (!isMe && _canAllowTemporaryEdit && CanBeAllowedTemporaryEdit(person))
+                                        {
+                                            <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => StartAllow(person)">
+                                                <i class="fa-solid fa-clock" aria-hidden="true"></i>
+                                                @(person.IsAllowedTemporaryEdit(_now) ? "Change temporary edit end date" : "Allow temporary edit")
+                                            </button>
+                                            @if (person.IsAllowedTemporaryEdit(_now))
+                                            {
+                                                <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => StopAllowingAsync(person)">
+                                                    <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+                                                    Stop allowing temporary edit
+                                                </button>
+                                            }
+                                        }
+                                        @if (_canWrite)
+                                        {
+                                            <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => SetChairAsync(person, !person.IsCommitteeChair)">
+                                                <i class="fa-solid fa-gavel" aria-hidden="true"></i>
+                                                @(person.IsCommitteeChair ? "Clear committee chair" : "Mark as committee chair")
+                                            </button>
+                                            @CombineItems(person)
+                                        }
+                                        @* A Global admin comes from the app's settings: removing them
+                                           would only last until their next sign-in. *@
+                                        @if (!isMe && _canWrite && !person.IsGlobalAdmin)
+                                        {
+                                            <button type="button" class="ellipsis-menu-item ellipsis-menu-item-danger" disabled="@_busy" @onclick="() => StartRemove(person)">
+                                                <i class="fa-solid fa-user-slash" aria-hidden="true"></i>
+                                                Remove access
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                    @if (_pendingAllow == person.RowKey)
+                    {
+                        <tr>
+                            <td colspan="5">@AllowForm(person)</td>
+                        </tr>
+                    }
+                    @if (_pendingRemove == person.RowKey)
+                    {
+                        <tr>
+                            <td colspan="5">@RemoveConfirmation(person)</td>
+                        </tr>
+                    }
+                    @if (_pendingCombine?.UserKey == person.RowKey)
+                    {
+                        <tr>
+                            <td colspan="5">@CombineConfirmation(person)</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private System.Security.Claims.ClaimsPrincipal _user = new();
+    private string _myKey = string.Empty;
+    private bool _canWrite;
+
+    /// <summary>A standing Editor, or the Global admin even while Read only.</summary>
+    private bool _canAllowTemporaryEdit;
+    private DateTimeOffset _now;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _pendingRemove;
+    private (string UserKey, string OtherKey)? _pendingCombine;
+    private IReadOnlyList<AdminUserEntity> _people = [];
+    private ILookup<string, AdminSignInEntity> _signIns = Array.Empty<AdminSignInEntity>().ToLookup(s => s.UserKey);
+
+    private IEnumerable<AdminUserEntity> Requests =>
+        _people.Where(p => !p.HasAccess).OrderByDescending(p => p.FirstSeenUtc);
+
+    private IEnumerable<AdminUserEntity> WithAccess =>
+        _people.Where(p => p.HasAccess).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Read only and not a Global admin (who can always turn on Edit).</summary>
+    private static bool CanBeAllowedTemporaryEdit(AdminUserEntity person) =>
+        person is { Role: AdminAccessRole.Viewer, IsGlobalAdmin: false };
+
+    private static string MenuId(AdminUserEntity person) =>
+        $"accessMenu-{string.Concat(person.RowKey.Select(c => char.IsLetterOrDigit(c) ? c : '-'))}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _user = authState?.User ?? new();
+        // Temporary Edit is for treasurer work only, so it doesn't get these menus.
+        _canWrite = _user.IsStandingTroopFinanceWriter();
+        _canAllowTemporaryEdit = _user.CanAllowTemporaryEdit();
+        _myKey = (await AdminUsers.ResolveAsync(_user))?.RowKey ?? string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _now = TimeProvider.GetUtcNow();
+        _people = await AdminUsers.GetAllAsync();
+        _signIns = (await AdminUsers.GetAllSignInsAsync()).ToLookup(s => s.UserKey);
+        _loading = false;
+    }
+
+    private Task SetRoleAsync(AdminUserEntity person, string role) =>
+        ChangeAsync(() => AdminUsers.SetRoleAsync(person.RowKey, role, _user));
+
+    private Task StopAllowingAsync(AdminUserEntity person) =>
+        ChangeAsync(() => AdminUsers.StopAllowingTemporaryEditAsync(person.RowKey, _user));
+
+    private string? _pendingAllow;
+    private DateTime _allowLastDay;
+
+    private DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_now, TimeProvider.LocalTimeZone).DateTime);
+
+    /// <summary>The last day an Editor allowed temporary Edit through (Pacific), or null when it has no end date.</summary>
+    private DateOnly? LastAllowedDay(AdminUserEntity person) =>
+        person.CanTurnOnEditUntilUtc is { } until
+            ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(until.AddTicks(-1), TimeProvider.LocalTimeZone).DateTime)
+            : null;
+
+    private string AllowanceLabel(AdminUserEntity person) =>
+        person.IsAllowedTemporaryEdit(_now)
+            ? LastAllowedDay(person) is { } lastDay ? $"Can turn on edit through {lastDay:MMM d}" : "Can turn on edit (no end date)"
+            : "Can turn on edit";
+
+    /// <summary>Opens the end-date picker: a week out for a new permission, else the current last day.</summary>
+    private void StartAllow(AdminUserEntity person)
+    {
+        _error = null;
+        _pendingRemove = null;
+        _pendingCombine = null;
+        _pendingAllow = person.RowKey;
+        var lastDay = person.IsAllowedTemporaryEdit(_now) && LastAllowedDay(person) is { } current ? current : Today.AddDays(7);
+        _allowLastDay = lastDay.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private void CancelAllow() => _pendingAllow = null;
+
+    private Task ConfirmAllowAsync(AdminUserEntity person) =>
+        ChangeAsync(() => AdminUsers.AllowTemporaryEditAsync(person.RowKey, DateOnly.FromDateTime(_allowLastDay), _user));
+
+    private Task SetChairAsync(AdminUserEntity person, bool isChair) =>
+        ChangeAsync(() => AdminUsers.SetCommitteeChairAsync(person.RowKey, isChair, _user));
+
+    private void StartRemove(AdminUserEntity person)
+    {
+        if (_canWrite)
+        {
+            _error = null;
+            _pendingCombine = null;
+            _pendingAllow = null;
+            _pendingRemove = person.RowKey;
+        }
+    }
+
+    private void StartCombine(AdminUserEntity person, AdminUserEntity other)
+    {
+        if (_canWrite)
+        {
+            _error = null;
+            _pendingRemove = null;
+            _pendingAllow = null;
+            _pendingCombine = (person.RowKey, other.RowKey);
+        }
+    }
+
+    private void CancelCombine() => _pendingCombine = null;
+
+    private Task ConfirmCombineAsync(AdminUserEntity person, AdminUserEntity other) =>
+        ChangeAsync(() => AdminUsers.CombineAsync(person.RowKey, other.RowKey, _user));
+
+    /// <summary>Everyone else listed who shares an email address with this person -- most likely
+    /// the same person's other account.</summary>
+    private IEnumerable<AdminUserEntity> SameEmail(AdminUserEntity person)
+    {
+        var signIns = _signIns.SelectMany(g => g).ToList();
+        var emails = AdminUserService.EmailsOf(person, signIns);
+        return _people.Where(p => p.RowKey != person.RowKey && AdminUserService.EmailsOf(p, signIns).Overlaps(emails));
+    }
+
+    private void CancelRemove() => _pendingRemove = null;
+
+    private Task ConfirmRemoveAsync(AdminUserEntity person) =>
+        ChangeAsync(() => AdminUsers.RemoveAsync(person.RowKey, _user));
+
+    private async Task ChangeAsync(Func<Task> change)
+    {
+        // The service checks each change itself; this only stops clicks from people with no menus.
+        if (!(_canWrite || _canAllowTemporaryEdit) || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await change();
+            _pendingRemove = null;
+            _pendingCombine = null;
+            _pendingAllow = null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save that change. Please reload the page and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        await LoadAsync();
+    }
+
+    // Each account they've signed in with, most recent first, with when it last did.
+    private RenderFragment SignInPills(AdminUserEntity person) =>
+        @<div class="sign-in-pills">
+            @foreach (var signIn in _signIns[person.RowKey].OrderByDescending(s => s.LastSeenUtc))
+            {
+                <span class="sign-in-pill sign-in-pill-@signIn.Provider.ToLowerInvariant()"
+                      title="@(string.IsNullOrWhiteSpace(signIn.Email) ? signIn.Provider : $"{signIn.Provider}: {signIn.Email}")">
+                    <span class="sign-in-pill-provider">@signIn.Provider</span>
+                    <span>@signIn.LastSeenUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</span>
+                </span>
+            }
+        </div>;
+
+    private RenderFragment CombineItems(AdminUserEntity person) =>
+        @<text>
+            @foreach (var other in SameEmail(person))
+            {
+                <button type="button" class="ellipsis-menu-item" disabled="@_busy" @onclick="() => StartCombine(person, other)">
+                    <i class="fa-solid fa-object-group" aria-hidden="true"></i>
+                    Combine with @other.Name@(_signIns[other.RowKey].Any() ? $" ({string.Join(", ", _signIns[other.RowKey].Select(s => s.Provider).Distinct())})" : "")
+                </button>
+            }
+        </text>;
+
+    private RenderFragment CombineConfirmation(AdminUserEntity person) =>
+        @<text>
+            @if (_people.FirstOrDefault(p => p.RowKey == _pendingCombine?.OtherKey) is { } other)
+            {
+                // The higher of the two roles, as AdminUserService.CombineAsync keeps.
+                var role = person.Role == AdminAccessRole.Editor || other.Role == AdminAccessRole.Editor ? AdminAccessRole.Editor
+                    : person.HasAccess || other.HasAccess ? AdminAccessRole.Viewer
+                    : AdminAccessRole.None;
+                <div class="alert alert-info" style="margin:0;">
+                    <strong>Combine @person.Name and @other.Name into one person? Only do this if both accounts belong to the same person.
+                        @(role == AdminAccessRole.None
+                            ? "They'll be one access request."
+                            : $"They'll get {AdminAccessRole.DisplayName(role)} access whichever account they sign in with.")</strong>
+                    <div class="row-actions" style="margin-top:0.5rem;">
+                        <button class="btn btn-primary btn-sm" disabled="@_busy" @onclick="() => ConfirmCombineAsync(person, other)">Confirm combine</button>
+                        <button class="btn btn-secondary btn-sm" disabled="@_busy" @onclick="CancelCombine">Cancel</button>
+                    </div>
+                </div>
+            }
+        </text>;
+
+    private RenderFragment AllowForm(AdminUserEntity person) =>
+        @<div class="alert alert-info" style="margin:0;">
+            <strong>@(person.IsAllowedTemporaryEdit(_now)
+                ? $"Change when {person.Name}'s temporary edit permission ends."
+                : $"Let {person.Name} turn on Edit for a few hours at a time, until the end of the day you pick.")</strong>
+            <div class="field" style="margin-top:0.5rem;">
+                <label for="allowLastDay">Last day allowed</label>
+                <input id="allowLastDay" type="date" @bind="_allowLastDay" style="width:auto;"
+                       min="@Today.ToString("yyyy-MM-dd")" max="@Today.AddDays(AdminUserService.MaxTemporaryEditAllowanceDays).ToString("yyyy-MM-dd")" />
+            </div>
+            <div class="row-actions">
+                <button class="btn btn-primary btn-sm" id="confirmAllow" disabled="@_busy" @onclick="() => ConfirmAllowAsync(person)">
+                    @(person.IsAllowedTemporaryEdit(_now) ? "Save end date" : "Allow temporary edit")
+                </button>
+                <button class="btn btn-secondary btn-sm" disabled="@_busy" @onclick="CancelAllow">Cancel</button>
+            </div>
+        </div>;
+
+    private RenderFragment RemoveConfirmation(AdminUserEntity person) =>
+        @<div class="alert alert-danger" style="margin:0;">
+            <strong>@(person.HasAccess
+                ? $"Remove {person.Name}'s access? They'll be signed out within a minute or two."
+                : $"Dismiss {person.Name}'s request? If they sign in again, they'll show up here again.")</strong>
+            <div class="row-actions" style="margin-top:0.5rem;">
+                <button class="btn btn-danger btn-sm" disabled="@_busy" @onclick="() => ConfirmRemoveAsync(person)">@(person.HasAccess ? "Confirm remove" : "Confirm dismiss")</button>
+                <button class="btn btn-outline-danger btn-sm" disabled="@_busy" @onclick="CancelRemove">Cancel</button>
+            </div>
+        </div>;
+}

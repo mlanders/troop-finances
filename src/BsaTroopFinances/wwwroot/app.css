@@ -1,0 +1,2587 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Open+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+    /* Same BSA-style palette as the troop's other apps (navy/red/gold). */
+    --tf-navy: #003f87;
+    --tf-navy-dark: #07254a;
+    --tf-red: #ce1126;
+    --tf-red-dark: #a50d1e;
+    --tf-green: #1e7a34;
+    --tf-green-dark: #145c27;
+    --tf-gold: #fcb711;
+    --tf-bg: #f4f6fb;
+    --tf-card-bg: #ffffff;
+    --tf-border: rgba(7, 37, 74, 0.12);
+    --tf-text: #1f2a37;
+    --tf-text-muted: #57677a;
+
+    font-family: 'Open Sans', system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+}
+
+h1, h2, h3 {
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--tf-navy);
+    /* The browser's default top margin on headings otherwise makes a bare "<h1>Title</h1>" page
+       sit noticeably lower than one wrapped in .page-header-row (which already zeroes its own h1
+       margin) -- a visible jump in header height when navigating between the two kinds of page.
+       Resetting it here makes every page start at the same offset under the sticky admin header.
+       Bottom margin is left alone since content below a heading still relies on it for spacing. */
+    margin-top: 0;
+}
+
+h1:focus {
+    outline: none;
+}
+
+a {
+    color: var(--tf-navy);
+}
+
+    a:hover:not(.btn) {
+        color: var(--tf-red);
+    }
+
+:focus-visible {
+    outline: 3px solid var(--tf-gold);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
+
+/* ---- Buttons ---- */
+.btn {
+    font-size: 1rem;
+    padding: 0.65rem 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-family: 'Open Sans', system-ui, sans-serif;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary {
+    background: var(--tf-navy);
+    border-color: var(--tf-navy);
+    color: white;
+}
+
+    .btn-primary:hover:not(:disabled) {
+        background: var(--tf-navy-dark);
+        border-color: var(--tf-navy-dark);
+        color: white;
+    }
+
+.btn-secondary {
+    background: white;
+    color: var(--tf-navy);
+    border-color: var(--tf-border);
+}
+
+    .btn-secondary:hover:not(:disabled) {
+        border-color: var(--tf-navy);
+        background: #f8faff;
+    }
+
+.btn-success {
+    background: var(--tf-green);
+    border-color: var(--tf-green);
+    color: white;
+}
+
+    .btn-success:hover:not(:disabled) {
+        background: var(--tf-green-dark);
+        border-color: var(--tf-green-dark);
+        color: white;
+    }
+
+.btn-danger {
+    background: var(--tf-red-dark);
+    color: white;
+}
+
+    .btn-danger:hover:not(:disabled) {
+        background: #7d0a17;
+        color: white;
+    }
+
+/* For milder negative/undo actions (Cancel, Deactivate) -- a visual warning without the full
+   weight of .btn-danger's solid fill, which is reserved for destructive actions (Void, Reject,
+   Delete). */
+.btn-outline-danger {
+    background: white;
+    color: var(--tf-red);
+    border-color: var(--tf-red);
+}
+
+    .btn-outline-danger:hover:not(:disabled) {
+        background: #fbe9e7;
+        border-color: var(--tf-red-dark);
+        color: var(--tf-red-dark);
+    }
+
+.btn-block {
+    width: 100%;
+    text-align: center;
+}
+
+.btn-lg {
+    font-size: 1.1rem;
+    padding: 0.85rem 1.4rem;
+}
+
+.choice-btn {
+    min-height: 44px;
+    border-radius: 6px;
+}
+
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    background: #ffffff;
+    border: 1px solid #4b5563;
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Pushes a filter to the right end of an .action-bar on wide screens. Once the bar wraps onto
+   multiple lines on a small screen, an auto left-margin would still shove that filter to the
+   right edge of its own line -- so below this width it floats left like every other wrapped item
+   instead. */
+.filter-group-end {
+    margin-left: auto;
+}
+
+@media (max-width: 630px) {
+    .filter-group-end {
+        margin-left: 0;
+    }
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--tf-navy);
+}
+
+    .btn-ghost:hover:not(:disabled) {
+        background: #e8f0fe;
+        border-color: #e8f0fe;
+    }
+
+.btn-ghost .fa-solid {
+    margin-right: 0.4rem;
+}
+
+/* A ghost button for a destructive action-bar item (e.g. "Delete scout") -- same shape as
+   .btn-ghost, colored red instead of navy to signal danger even at rest. */
+.btn-ghost-danger {
+    background: transparent;
+    border-color: transparent;
+    color: var(--tf-red);
+}
+
+    .btn-ghost-danger:hover:not(:disabled) {
+        background: #fbe9e7;
+        border-color: #fbe9e7;
+    }
+
+.btn-ghost-danger .fa-solid {
+    margin-right: 0.4rem;
+}
+
+/* ---- Per-row "more actions" ellipsis menu (e.g. the Guardians list) ---- */
+.guardian-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+    /* A flex item's own margin never collapses with the card's padding, so the <p>'s default
+       browser margin would otherwise stack on top of .card's padding and make the top of the card
+       visibly taller than the bottom. */
+    .guardian-card-header p {
+        margin: 0;
+    }
+
+.ellipsis-menu {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.ellipsis-menu-check {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ellipsis-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--tf-border);
+    background: white;
+    color: var(--tf-navy);
+    cursor: pointer;
+}
+
+    .ellipsis-menu-toggle:hover {
+        background: #e8f0fe;
+    }
+
+.ellipsis-menu-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    min-width: 170px;
+    background: white;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(7, 37, 74, 0.14);
+    padding: 0.35rem;
+    z-index: 5;
+}
+
+    .ellipsis-menu-check:checked ~ .ellipsis-menu-panel {
+        display: flex;
+        flex-direction: column;
+    }
+
+.ellipsis-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--tf-navy);
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: none;
+}
+
+    .ellipsis-menu-item:hover:not(:disabled) {
+        background: #e8f0fe;
+    }
+
+    .ellipsis-menu-item:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+/* Labels that group a menu's items, e.g. "Print" (changes nothing) vs "Record" (changes money). */
+.ellipsis-menu-heading {
+    padding: 0.35rem 0.65rem 0.15rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--tf-text-muted);
+}
+
+.ellipsis-menu-divider {
+    margin-top: 0.3rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--tf-border);
+}
+
+.ellipsis-menu-item-danger {
+    color: var(--tf-red);
+}
+
+    .ellipsis-menu-item-danger:hover:not(:disabled) {
+        background: #fbe9e7;
+    }
+
+/* Inside a scrolling table (e.g. the Scouts list) the region clips anything hanging below it, so
+   the panel opens beside the toggle instead of under it, and upward from the last row. The
+   min-height leaves room for it when the table has only a row or two. */
+.table-scroll:has(.ellipsis-menu) {
+    min-height: 10rem;
+}
+
+.table-scroll td:has(> .ellipsis-menu) {
+    width: 1%;
+}
+
+.table-scroll .ellipsis-menu-panel {
+    top: 0;
+    right: calc(100% + 0.25rem);
+}
+
+/* Not once floating: this selector outranks the floating rule below, and its bottom: 0 would
+   stretch the pinned panel down to the bottom of the window. */
+.table-scroll tr:last-child:not(:first-child) .ellipsis-menu-panel:not(.ellipsis-menu-panel-floating) {
+    top: auto;
+    bottom: 0;
+}
+
+/* An opened table menu, pinned to the viewport by ellipsis-menu.js so the scroll box can't clip
+   it; the rules above are the fallback before the script runs. */
+.table-scroll .ellipsis-menu-panel.ellipsis-menu-panel-floating {
+    position: fixed;
+    right: auto;
+    bottom: auto;
+    z-index: 1000;
+}
+
+/* ---- Cards ---- */
+.card {
+    background: var(--tf-card-bg);
+    border: 1px solid var(--tf-border);
+    border-radius: 1rem;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 8px 24px rgba(7, 37, 74, 0.12);
+}
+
+/* ---- Choice buttons (simple pickers) ---- */
+.choice-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+.dashboard-choice-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+/* ---- Dashboard cards: colored header band holding the title, each box its own color ---- */
+.dash-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.dash-card-header {
+    padding: 0.75rem 1.25rem 0.375rem;
+    color: #ffffff;
+}
+
+    .dash-card-header h3 {
+        margin: 0;
+        color: inherit;
+    }
+
+.dash-card-body {
+    padding: 1.25rem;
+}
+
+/* Big count on the pending/outstanding boxes; floats right of the total and button on wider screens. */
+.dash-stat-number {
+    font-size: 5.4rem;
+    font-weight: 700;
+    line-height: 1;
+    margin: 0 0 1rem;
+    /* Body text color (#1f2a37) lightened by 10%. */
+    color: #324458;
+}
+
+@media (min-width: 768px) {
+    .dash-card-body {
+        display: flow-root;
+    }
+
+    .dash-stat-number {
+        float: right;
+        margin: 0 20px 0 1rem;
+    }
+}
+
+.dash-navy { background: var(--tf-navy); }
+.dash-red { background: var(--tf-red); }
+.dash-green { background: #1e7a34; }
+.dash-gold { background: #a87400; }
+.dash-purple { background: #5b3a8c; }
+
+/* ---- Dashboard stat cards (home page only) -- a thin colored accent bar + icon badge, distinct
+   from the full-height colored header band ".dash-card" above (which Reports.razor also uses and
+   keeps unchanged). ---- */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+}
+
+@media (max-width: 630px) {
+    .stat-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1rem;
+}
+
+.stat-card {
+    border-top: 4px solid var(--accent-color, var(--tf-navy));
+    transition: box-shadow 0.15s ease;
+}
+
+    .stat-card:hover {
+        box-shadow: 0 10px 28px rgba(7, 37, 74, 0.14);
+    }
+
+.stat-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.stat-card-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    flex: 0 0 auto;
+    background: var(--accent-tint, #e8f0fe);
+    color: var(--accent-color, var(--tf-navy));
+}
+
+.stat-card-navy { --accent-color: var(--tf-navy); --accent-tint: #e8f0fe; }
+.stat-card-red { --accent-color: var(--tf-red); --accent-tint: #fbe9e7; }
+.stat-card-green { --accent-color: #1e7a34; --accent-tint: #e3f3e8; }
+.stat-card-gold { --accent-color: #a87400; --accent-tint: #fbf0d9; }
+
+.stat-card h3 {
+    margin: 0;
+    color: var(--accent-color, var(--tf-navy));
+}
+
+.stat-card-number {
+    font-size: 3.5rem;
+    font-weight: 700;
+    line-height: 1;
+    margin: 0 0 0.4rem;
+    color: var(--tf-text);
+}
+
+.stat-card-number-sm {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+    margin: 0 0 0.4rem;
+    color: var(--tf-text);
+}
+
+.stat-card-divider {
+    border: none;
+    border-top: 1px solid var(--tf-border);
+    margin: 1rem 0;
+}
+
+.stat-card .btn {
+    width: 100%;
+    margin-top: 1rem;
+    gap: 0.5rem;
+}
+
+.progress-track {
+    background: var(--tf-border);
+    border-radius: 999px;
+    height: 8px;
+    overflow: hidden;
+    margin: 0.5rem 0;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent-color, var(--tf-navy));
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.section-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0;
+}
+
+.section-header-title .stat-card-icon {
+    margin-bottom: 0;
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+}
+
+.overview-subgrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.overview-subcard {
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    background: var(--accent-tint, #e8f0fe);
+}
+
+.overview-subcard.stat-card-purple { --accent-color: #5b3a8c; --accent-tint: #f1eaf7; }
+
+.overview-subcard .stat-card-icon {
+    background: var(--accent-color, var(--tf-navy));
+    color: #ffffff;
+}
+
+.overview-subcard-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+    .overview-subcard-header .stat-card-number-sm,
+    .overview-subcard-header .hint {
+        margin: 0;
+    }
+
+.overview-subcard .btn {
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.fundraiser-item {
+    list-style: none;
+    margin-bottom: 1rem;
+}
+
+/* ---- Recent activity timeline (home page only; ".activity-list" below is unchanged for other
+   uses). ---- */
+.timeline {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem 1rem;
+    border-left: 2px solid var(--tf-border);
+}
+
+.timeline-item {
+    position: relative;
+    padding: 0 0 1.25rem 1.5rem;
+    margin-left: -1px;
+}
+
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+.timeline-dot {
+    position: absolute;
+    left: -17px;
+    top: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    background: var(--accent-tint, #e8f0fe);
+    color: var(--accent-color, var(--tf-navy));
+    border: 2px solid var(--tf-card-bg);
+}
+
+.timeline-when {
+    display: block;
+    margin: 0 0 0.15rem;
+}
+
+.activity-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+}
+
+    .activity-list li {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 1rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--tf-border);
+    }
+
+    .activity-list .activity-when {
+        flex: 0 0 9rem;
+        margin: 0;
+    }
+
+/* ---- Welcome screen (Home.razor): the sign-in card's logo and title, then one full-width
+   tile per kind of person -- icon, title, one-line description, arrow. Stacked rather than side
+   by side so both tiles are always the same width and the descriptions have room. ---- */
+.signin.welcome {
+    max-width: 28rem;
+}
+
+.welcome-prompt {
+    margin: 0 0 0.75rem;
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-weight: 700;
+    color: var(--tf-navy);
+}
+
+.welcome-choices {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+}
+
+.welcome-choice {
+    --accent-color: var(--tf-navy);
+    --accent-tint: #e8f0fe;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--tf-border);
+    border-left: 4px solid var(--accent-color);
+    border-radius: 10px;
+    background: var(--tf-card-bg);
+    color: var(--tf-text);
+    text-align: left;
+    text-decoration: none;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+    .welcome-choice:hover {
+        border-color: var(--accent-color);
+        color: var(--tf-text);
+        text-decoration: none;
+        box-shadow: 0 4px 14px rgba(7, 37, 74, 0.12);
+        transform: translateY(-1px);
+    }
+
+.welcome-choice-leader {
+    --accent-color: var(--tf-red);
+    --accent-tint: #fbe9e7;
+}
+
+.welcome-choice-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    background: var(--accent-tint);
+    color: var(--accent-color);
+    font-size: 1.15rem;
+}
+
+.welcome-choice-text {
+    display: grid;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.welcome-choice-title {
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-weight: 700;
+    color: var(--tf-navy);
+}
+
+.welcome-choice-desc {
+    font-size: 0.85rem;
+    color: var(--tf-text-muted);
+}
+
+.welcome-choice-arrow {
+    flex: none;
+    color: var(--tf-text-muted);
+    transition: transform 0.15s, color 0.15s;
+}
+
+    .welcome-choice:hover .welcome-choice-arrow {
+        color: var(--accent-color);
+        transform: translateX(3px);
+    }
+
+.choice-btn {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0.85rem;
+    border-radius: 10px;
+    border: 2px solid var(--tf-border);
+    background: white;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+    .choice-btn.selected {
+        border-color: var(--tf-navy);
+        background: #eaf0f8;
+        color: var(--tf-navy);
+        font-weight: 700;
+    }
+
+/* ---- Compact filter bar (list page status + date filters, one line on desktop) ---- */
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.filter-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-label {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--tf-text-muted);
+    white-space: nowrap;
+}
+
+.choice-grid-compact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.choice-btn-compact {
+    padding: 0.4rem 0.9rem;
+    min-height: 36px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+}
+
+/* ---- A tick list of people in columns (e.g. which scouts to include in a bulk invoice) ---- */
+.check-list-field {
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem 1rem;
+}
+
+    .check-list-field legend {
+        font-weight: 600;
+        padding: 0 0.35rem;
+    }
+
+.check-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.15rem 1rem;
+}
+
+.check-list-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 36px;
+    font-weight: 400;
+    cursor: pointer;
+}
+
+    .check-list-item input[type="checkbox"] {
+        width: 1.1rem;
+        height: 1.1rem;
+        flex: 0 0 auto;
+    }
+
+/* A filter choice that is a link (pages without a live connection, e.g. the portal's My Receipts). */
+a.choice-btn {
+    display: inline-flex;
+    align-items: center;
+    color: var(--tf-text);
+    text-decoration: none;
+}
+
+/* Filter-bar boxes (dates, name searches) share one compact size so they line up. */
+.filter-group input[type="date"],
+.filter-group input[type="search"],
+.filter-group select.view-picker,
+.filter-save-form input[type="text"] {
+    width: auto;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.95rem;
+}
+
+.filter-group select.view-picker {
+    max-width: 16rem;
+}
+
+/* ---- ListFilterBar: the Filters button, its panel, and saved views ---- */
+.filter-toggle {
+    gap: 0.4rem;
+    min-height: 36px;
+}
+
+    .filter-toggle .fa-solid {
+        margin-right: 0;
+    }
+
+    .filter-toggle.open {
+        border-color: var(--tf-navy);
+        background: #eaf0f8;
+    }
+
+.filter-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--tf-navy);
+    color: white;
+    font-size: 0.75rem;
+    line-height: 1;
+}
+
+.filter-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.5rem;
+    margin: -0.5rem 0 1.25rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    background: var(--tf-bg);
+}
+
+.filter-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-save-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-panel > .alert,
+.filter-panel-hint {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.filter-view-confirm {
+    margin: -0.5rem 0 1.25rem;
+}
+
+/* Phones: each panel row on its own line, boxes full width. */
+@media (max-width: 600px) {
+    .filter-panel {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-panel .filter-group input[type="date"] {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .filter-panel .filter-group input[type="search"],
+    .filter-save-form input[type="text"] {
+        flex-basis: 100%;
+        width: 100%;
+    }
+}
+
+.btn-sm {
+    min-height: 36px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.9rem;
+}
+
+/* ---- Two cards side by side on larger screens, stacked on smaller ones (e.g. an invoice's
+   details next to its Record payment form). A lone card spans the full width. ---- */
+@media (min-width: 900px) {
+    .side-by-side {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 1rem;
+        align-items: start;
+    }
+
+        .side-by-side > :only-child {
+            grid-column: 1 / -1;
+        }
+}
+
+/* ---- One line of long text cut off with "..." (full text in the title tooltip), e.g. a
+   reimbursement's description in the list ---- */
+.text-truncate {
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- Status badge with the row's edit/view icon pushed to the far right (the Invoices and
+   Reimbursements lists, where Status is the last column) ---- */
+.status-cell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.icon-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 0.5rem;
+    color: var(--tf-navy);
+    text-decoration: none;
+}
+
+    .icon-link:hover {
+        background: #e8f0fe;
+    }
+
+    .icon-link:focus-visible {
+        outline: 3px solid var(--tf-gold);
+        outline-offset: 2px;
+    }
+
+/* ---- Chips (e.g. linked scouts on one line) ---- */
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: #eaf0f8;
+    color: var(--tf-navy);
+    border-radius: 999px;
+    padding: 0.25rem 0.4rem 0.25rem 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--tf-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+    .chip-remove:hover {
+        background: rgba(206, 17, 38, 0.15);
+        color: var(--tf-red);
+    }
+
+/* ---- Forms ---- */
+label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="email"],
+input[type="password"], select, textarea {
+    font-size: 1.05rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--tf-border);
+    width: 100%;
+}
+
+/* Safari draws search boxes its own way (ignoring the padding and corners above) unless told not to. */
+input[type="search"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: white;
+}
+
+textarea {
+    font-family: inherit;
+    resize: vertical;
+}
+
+    input:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: var(--tf-navy);
+        box-shadow: 0 0 0 3px rgba(0, 63, 135, 0.15);
+    }
+
+.field {
+    margin-bottom: 1rem;
+}
+
+.field-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--tf-border);
+}
+
+.field-row label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.field-row input[type="number"] {
+    width: 7rem;
+}
+
+/* The current admin section's pages (SectionTabs), in a bar under the header. The bar keeps one
+   height whether or not it has tabs, so page headings never move; its inner row lines up with
+   .admin-main. On a narrow screen the row scrolls sideways rather than wrapping. */
+.section-tabs-bar {
+    background: white;
+    border-bottom: 1px solid var(--tf-border);
+}
+
+.section-tabs-inner {
+    box-sizing: border-box;
+    max-width: 1400px;
+    min-height: 44px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+}
+
+@media (max-width: 1226px) {
+    .section-tabs-inner {
+        padding: 0 0.85rem;
+    }
+}
+
+.section-tabs {
+    display: flex;
+    gap: 0.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+
+.section-tab {
+    flex: 0 0 auto;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 0.85rem;
+    color: var(--tf-text-muted);
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-decoration: none;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+}
+
+    .section-tab:hover {
+        color: var(--tf-navy);
+        border-bottom-color: var(--tf-border);
+    }
+
+    .section-tab.active {
+        color: var(--tf-navy);
+        border-bottom-color: var(--tf-red);
+    }
+
+.page-header-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+}
+
+.page-header-row h1 {
+    margin: 0;
+}
+
+.page-header-row p {
+    margin: 0;
+}
+
+.page-header-row .btn {
+    align-self: center;
+}
+
+/* ---- Page heading with an info button that shows/hides the page's help (PageHelp.razor) ---- */
+.page-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-help-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    background: white;
+    color: var(--tf-navy);
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+    .page-help-toggle:hover, .page-help-toggle.open {
+        background: #e8f0fe;
+    }
+
+/* Its own full-width line under the whole header row. */
+.page-help {
+    position: relative;
+    flex-basis: 100%;
+    order: 10;
+    margin: 0.25rem 0 0.5rem;
+    padding: 0.85rem 2.75rem 0.85rem 1rem;
+    background: #eef4fb;
+    border-left: 4px solid var(--tf-navy);
+    border-radius: 8px;
+    color: var(--tf-text);
+}
+
+    .page-header-row .page-help p {
+        margin: 0 0 0.6rem;
+    }
+
+        .page-header-row .page-help p:last-of-type {
+            margin-bottom: 0;
+        }
+
+.page-help-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+}
+
+    .page-help-close:hover {
+        background: rgba(7, 37, 74, 0.08);
+    }
+
+.back-link {
+    align-self: center;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+.amount-edit-row {
+    display: grid;
+    grid-template-columns: minmax(12rem, 1fr) auto;
+    align-items: end;
+    gap: 0.75rem;
+}
+
+.amount-edit-row .field {
+    margin-bottom: 0;
+}
+
+.amount-edit-row + .row-actions {
+    margin-top: 1.5rem;
+}
+
+/* Element+class to reliably beat ".hint"'s margin-top:-0.5rem (same specificity, declared later in
+   this file, so a bare ".invoice-amount-due" selector would lose the cascade and overlap the
+   amount-edit-row above it). */
+p.invoice-amount-due {
+    margin: 0.5rem 0 0;
+}
+
+.confirmation-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(7, 37, 74, 0.48);
+}
+
+.confirmation-dialog {
+    width: min(100%, 34rem);
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    padding: 1.5rem;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 12px 36px rgba(7, 37, 74, 0.24);
+}
+
+.confirmation-dialog h2 {
+    margin-top: 0;
+}
+
+.reimbursement-summary {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.reimbursement-summary-details {
+    min-width: 0;
+    flex: 1;
+}
+
+.receipt-preview {
+    display: grid;
+    flex: 0 0 213px;
+    gap: 0.35rem;
+    justify-items: center;
+    color: var(--tf-navy);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-align: center;
+    text-decoration: none;
+}
+
+.receipt-preview img {
+    display: block;
+    width: 213px;
+    height: 213px;
+    border: 1px solid var(--tf-border);
+    border-radius: 6px;
+    background: white;
+    object-fit: contain;
+}
+
+.receipt-preview:hover img {
+    border-color: var(--tf-navy);
+}
+
+/* Preview of a receipt that hasn't been uploaded yet (ReceiptPreview.razor + receipt-preview.js):
+   a thumbnail under the dropzone, and a larger copy in the "Check your receipt" dialog. */
+.confirmation-dialog-wide {
+    width: min(100%, 40rem);
+}
+
+.receipt-file-preview:empty,
+.receipt-review-preview:empty {
+    display: none;
+}
+
+.receipt-file-preview img,
+.receipt-file-preview iframe,
+.receipt-review-preview img,
+.receipt-review-preview iframe {
+    display: block;
+    max-width: 100%;
+    border: 1px solid var(--tf-border);
+    border-radius: 6px;
+    background: white;
+}
+
+/* Small square thumbnail inside the dropzone once a file is chosen. The file input still sits on
+   top of it, so a click anywhere on the row replaces the file. */
+.receipt-file-preview {
+    flex: 0 0 auto;
+}
+
+.receipt-file-preview img,
+.receipt-file-preview iframe {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+}
+
+.receipt-file-preview .receipt-preview-open {
+    display: none;
+}
+
+.receipt-review-preview {
+    margin-bottom: 1rem;
+}
+
+.receipt-review-preview img {
+    margin: 0 auto;
+    max-height: 55vh;
+    object-fit: contain;
+}
+
+.receipt-review-preview iframe {
+    width: 100%;
+    height: 55vh;
+}
+
+.receipt-preview-open {
+    display: inline-block;
+    margin-top: 0.35rem;
+    font-size: 0.85rem;
+}
+
+.receipt-review-details {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.35rem 1rem;
+    margin: 0 0 1rem;
+}
+
+.receipt-review-details dt {
+    color: var(--tf-text-muted);
+    font-weight: 600;
+}
+
+.receipt-review-details dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+    .reimbursement-summary {
+        flex-direction: column-reverse;
+    }
+
+    .receipt-preview {
+        align-self: flex-end;
+    }
+}
+
+@media (max-width: 480px) {
+    .amount-edit-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.portal-login-card h1 {
+    margin-top: 0;
+}
+
+/* Treasurer sign-in (AdminSignIn.razor), matching the meal-planner app's: logo, title, then one
+   provider-styled button per sign-in option -- white with the provider's own mark, the look
+   Microsoft's and Google's branding guidelines describe. */
+.signin {
+    width: 100%;
+    max-width: 25rem;
+    margin: 2rem auto;
+    padding: 2.25rem 2rem 1.5rem;
+    box-sizing: border-box;
+    text-align: center;
+}
+
+    .signin h1 {
+        margin: 0.75rem 0 0.1rem;
+        font-size: 1.6rem;
+    }
+
+    .signin .alert {
+        text-align: left;
+    }
+
+.signin-logo {
+    width: 4rem;
+    height: 4rem;
+}
+
+.signin-sub {
+    margin: 0 0 1.5rem;
+    color: var(--tf-text-muted);
+}
+
+.signin-buttons {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 auto 1.25rem;
+    max-width: 18.5rem;
+}
+
+.signin-provider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    height: 2.6rem;
+    padding: 0 1rem;
+    background: #fff;
+    border: 1px solid #8c8c8c;
+    border-radius: 4px;
+    color: #3c4043;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color 0.15s, box-shadow 0.15s;
+}
+
+    .signin-provider:hover {
+        background: #f7f8f8;
+        color: #3c4043;
+        text-decoration: none;
+        box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25);
+    }
+
+.signin-provider-logo {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: none;
+}
+
+.signin-note {
+    font-size: 0.88rem;
+    color: var(--tf-text-muted);
+    margin: 0 0 1.25rem;
+}
+
+.signin-foot {
+    border-top: 1px solid var(--tf-border);
+    padding-top: 1rem;
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--tf-text-muted);
+}
+
+/* Privacy Policy and Terms of Service (Privacy.razor, Terms.razor): a readable document card. */
+.legal {
+    margin: 1rem 0;
+    padding: 2rem 2rem 1.5rem;
+    line-height: 1.6;
+}
+
+    .legal h1 {
+        margin: 0 0 0.25rem;
+    }
+
+    .legal h2 {
+        margin: 1.75rem 0 0.5rem;
+        font-size: 1.15rem;
+    }
+
+    .legal p,
+    .legal ul {
+        margin: 0 0 0.75rem;
+    }
+
+    .legal ul {
+        padding-left: 1.25rem;
+    }
+
+    .legal li {
+        margin-bottom: 0.35rem;
+    }
+
+.legal-updated {
+    color: var(--tf-text-muted);
+    font-size: 0.9rem;
+}
+
+.legal-links {
+    margin-top: 1.75rem !important;
+    padding-top: 1rem;
+    border-top: 1px solid var(--tf-border);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+@media (max-width: 480px) {
+    .legal {
+        padding: 1.5rem 1.15rem 1.25rem;
+    }
+}
+
+/* Parent sign-in (PortalLogin.razor): the same card, plus an email -> code step indicator. */
+.signin-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    list-style: none;
+    font-size: 0.82rem;
+    color: var(--tf-text-muted);
+}
+
+.signin-step {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+    .signin-step.is-current {
+        color: var(--tf-navy);
+        font-weight: 700;
+    }
+
+.signin-step-num {
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    border: 1px solid var(--tf-border);
+    background: var(--tf-card-bg);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.signin-step.is-current .signin-step-num {
+    background: var(--tf-navy);
+    border-color: var(--tf-navy);
+    color: white;
+}
+
+.signin-step.is-done .signin-step-num {
+    background: var(--tf-green);
+    border-color: var(--tf-green);
+    color: white;
+}
+
+.signin-step-line {
+    width: 2rem;
+    height: 1px;
+    background: var(--tf-border);
+}
+
+.portal-signin-form {
+    text-align: left;
+}
+
+.portal-signin .btn .fa-solid {
+    margin-right: 0.35rem;
+}
+
+.input-icon {
+    position: relative;
+}
+
+    .input-icon > .fa-solid {
+        position: absolute;
+        left: 0.85rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--tf-text-muted);
+        pointer-events: none;
+    }
+
+    .input-icon > input {
+        padding-left: 2.5rem;
+    }
+
+.portal-signin-sent {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: #e8f0fe;
+    color: var(--tf-text);
+    font-size: 0.92rem;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+    .portal-signin-sent > .fa-solid {
+        margin-top: 0.15rem;
+        color: var(--tf-navy);
+        font-size: 1.15rem;
+    }
+
+.portal-signin .signin-note {
+    margin-top: 1rem;
+}
+
+/* "or" between the emailed-code form and the authenticator-app button. */
+.signin-or {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+    color: var(--tf-text-muted);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+    .signin-or::before,
+    .signin-or::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--tf-border);
+    }
+
+.portal-signin-app-btn {
+    margin-bottom: 1.25rem;
+}
+
+.portal-signin-app-intro {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: #e8f0fe;
+    color: var(--tf-text);
+    font-size: 0.92rem;
+    text-align: left;
+}
+
+    .portal-signin-app-intro > .fa-solid {
+        margin-top: 0.15rem;
+        color: var(--tf-navy);
+        font-size: 1.15rem;
+    }
+
+.portal-signin .portal-login-back {
+    margin: -0.5rem 0 1.25rem;
+    font-size: 0.92rem;
+}
+
+    .portal-signin .portal-login-back .fa-solid {
+        margin-right: 0.3rem;
+    }
+
+.portal-login-code {
+    display: block;
+    /* Just wide enough for six digits: 6 characters + their letter-spacing + the side padding. */
+    width: calc(6ch + 2.4em + 1.5rem + 20px) !important;
+    max-width: 100%;
+    margin: 0 auto;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    font-size: 2.25rem !important;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.4em;
+    /* letter-spacing also trails the last digit; matching left padding keeps the code centred. */
+    padding: 0.6rem 0.75rem 0.6rem calc(0.75rem + 0.4em) !important;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: var(--tf-navy);
+}
+
+.portal-login-code-field {
+    text-align: center;
+}
+
+    .portal-login-code::placeholder {
+        color: var(--tf-text-muted);
+        font-weight: 400;
+        opacity: 0.35;
+    }
+
+@media (max-width: 400px) {
+    .portal-login-code {
+        width: calc(6ch + 1.8em + 1.5rem + 4px) !important;
+        font-size: 1.75rem !important;
+        letter-spacing: 0.3em;
+        padding-left: calc(0.75rem + 0.3em) !important;
+    }
+}
+
+.portal-login-back {
+    margin: 1.25rem 0 0;
+    text-align: center;
+}
+
+.receipt-amount {
+    font-variant-numeric: tabular-nums;
+}
+
+.receipt-dropzone {
+    position: relative;
+    display: grid;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    border: 2px dashed rgba(0, 63, 135, 0.3);
+    border-radius: 8px;
+    background: #f8faff;
+    color: var(--tf-text-muted);
+    text-align: center;
+    cursor: copy;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.receipt-dropzone-active {
+    border-color: var(--tf-red);
+    background: #fff1f3;
+    box-shadow: 0 0 0 3px rgba(206, 17, 38, 0.15);
+}
+
+.receipt-dropzone:focus-within {
+    border-color: var(--tf-navy);
+    outline: 3px solid var(--tf-gold);
+    outline-offset: 3px;
+}
+
+.receipt-file-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: copy;
+    z-index: 1;
+}
+
+.receipt-dropzone::after {
+    content: "Choose file";
+    padding: 0.5rem 0.75rem;
+    justify-self: center;
+    border: 1px solid var(--tf-border);
+    border-radius: 6px;
+    background: white;
+    color: var(--tf-navy);
+    font-weight: 700;
+}
+
+.receipt-dropzone-touch {
+    display: none;
+}
+
+/* Touch screens: no dragging, and the button says what tapping does. */
+@media (pointer: coarse) {
+    .receipt-dropzone-pointer {
+        display: none;
+    }
+
+    .receipt-dropzone-touch {
+        display: inline;
+        color: var(--tf-navy);
+        font-weight: 600;
+    }
+
+    .receipt-dropzone::after {
+        content: "Take photo or choose file";
+    }
+}
+
+/* A file has been chosen: the dropzone becomes a file row -- thumbnail, name and size on the
+   left, and the button on the right now offers to replace it. */
+.receipt-dropzone-has-file {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 0.75rem;
+    border-style: solid;
+    border-color: var(--tf-border);
+    background: white;
+    text-align: left;
+}
+
+.receipt-dropzone.receipt-dropzone-has-file::after {
+    content: "Replace file";
+}
+
+.receipt-selected-file {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    min-width: 0;
+}
+
+.receipt-selected-meta {
+    display: grid;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.receipt-selected-meta strong {
+    color: var(--tf-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.receipt-selected-meta span {
+    font-size: 0.85rem;
+}
+
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+
+.hint.receipt-selected {
+    margin: 0.75rem 0 0;
+    overflow-wrap: anywhere;
+}
+
+.receipt-delete-form {
+    display: inline-block;
+    margin-left: 0.5rem;
+}
+
+.hint {
+    color: var(--tf-text-muted);
+    font-size: 0.9rem;
+    margin-top: -0.5rem;
+}
+
+/* The pull-up above tucks a hint under the paragraph before it. Straight after a form control
+   there is no paragraph gap to close, so it would ride up over the box: sit just below instead. */
+.field input + .hint,
+.field select + .hint,
+.field textarea + .hint,
+.field .amount-edit-row + .hint {
+    margin-top: 0.35rem;
+    margin-bottom: 0;
+}
+
+/* A second line in a table cell (an account's kind under its name) has no paragraph gap either. */
+td > .hint {
+    margin-top: 0.1rem;
+}
+
+/* ---- Alerts ---- */
+.alert {
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.alert-success {
+    background: #e6f4ea;
+    color: #1e7a34;
+    border: 1px solid #b7dcc0;
+}
+
+.alert-warning {
+    background: #fff4de;
+    color: #8a5a00;
+    border: 1px solid #fcb711;
+}
+
+.alert-info {
+    background: #eaf0f8;
+    color: var(--tf-navy);
+    border: 1px solid rgba(0, 63, 135, 0.25);
+}
+
+.alert-danger {
+    background: #fbe9e7;
+    color: var(--tf-red-dark);
+    border: 1px solid rgba(206, 17, 38, 0.3);
+}
+
+.validation-message {
+    color: var(--tf-red);
+}
+
+/* ---- Guardian Sign-in options (Portal/SignInOptions.razor) ---- */
+.signin-option-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+    .signin-option-head h2 {
+        margin: 0;
+    }
+
+    .signin-option-head h2 .fa-solid {
+        margin-right: 0.4rem;
+        color: var(--tf-navy);
+    }
+
+.authenticator-steps {
+    display: grid;
+    gap: 1.25rem;
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.authenticator-add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem 1.5rem;
+    margin-top: 0.75rem;
+}
+
+.authenticator-qr {
+    width: 180px;
+    height: 180px;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    background: white;
+    image-rendering: pixelated;
+}
+
+.authenticator-add-other {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
+    .authenticator-add-other p {
+        margin: 0 0 0.6rem;
+    }
+
+.authenticator-key {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+    .authenticator-key code {
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--tf-border);
+        border-radius: 6px;
+        background: var(--tf-bg);
+        font-size: 0.95rem;
+        letter-spacing: 0.05em;
+        overflow-wrap: anywhere;
+    }
+
+.authenticator-confirm {
+    margin-top: 0.75rem;
+}
+
+    .authenticator-confirm .portal-login-code {
+        margin: 0 0 0.75rem;
+    }
+
+    .authenticator-confirm .form-actions {
+        margin-top: 0.5rem;
+    }
+
+.authenticator-in-person .authenticator-qr {
+    width: 240px;
+    height: 240px;
+}
+
+/* Phones can't scan their own screen: lead with the tap-to-add button and hide the QR code --
+   except when an admin is showing it to a guardian in person (a different phone does the scan). */
+@media (pointer: coarse) and (max-width: 700px) {
+    .authenticator-steps:not(.authenticator-in-person) .authenticator-qr,
+    .authenticator-qr-hint {
+        display: none;
+    }
+}
+
+/* ---- Status badges (reimbursement/invoice status) ---- */
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: 'Poppins', sans-serif;
+}
+
+.badge-pending, .badge-outstanding {
+    background: #fff4de;
+    color: #8a5a00;
+}
+
+.badge-approved {
+    background: #eaf0f8;
+    color: var(--tf-navy);
+}
+
+.badge-paid {
+    background: #e6f4ea;
+    color: #1e7a34;
+}
+
+.badge-rejected, .badge-voided {
+    background: #fbe9e7;
+    color: var(--tf-red-dark);
+}
+
+/* ---- Sign-in account pills (People & Access): one per Microsoft/Google account ---- */
+.sign-in-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    /* About one pill wide, so a second account goes on its own line instead of widening the table. */
+    max-width: 16rem;
+}
+
+/* Badges in one cell (e.g. "Read only" + "Can turn on edit through Nov 13") wrap onto a second
+   line rather than widening a scrolling table. */
+.badge-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-width: 15rem;
+}
+
+    .badge-stack .badge {
+        white-space: nowrap;
+    }
+
+.sign-in-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    background: #f0f1f3;
+    color: #3b4250;
+    white-space: nowrap;
+}
+
+.sign-in-pill-provider {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+}
+
+.sign-in-pill-microsoft .sign-in-pill-provider {
+    color: #0067b8;
+}
+
+.sign-in-pill-google .sign-in-pill-provider {
+    color: #b3261e;
+}
+
+/* ---- Money display ---- */
+.money {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+}
+
+.money-negative {
+    color: var(--tf-red-dark);
+}
+
+.money-positive {
+    color: #1e7a34;
+}
+/* ---- Tables ---- */
+table.report-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.table-scroll {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll > table.report-table {
+    min-width: 100%;
+    width: max-content;
+}
+
+/* Long text (email subjects, notes) wraps inside a scrolling table instead of widening it. */
+.table-scroll .cell-wrap {
+    white-space: normal;
+    min-width: 12rem;
+    max-width: 22rem;
+    overflow-wrap: anywhere;
+}
+
+    .table-scroll .cell-wrap-wide {
+        max-width: 36rem;
+    }
+
+.table-scroll:focus-visible {
+    outline: 3px solid var(--tf-gold);
+    outline-offset: 2px;
+}
+
+    table.report-table th, table.report-table td {
+        text-align: left;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--tf-border);
+    }
+
+    table.report-table th {
+        font-family: 'Poppins', sans-serif;
+        color: var(--tf-navy);
+    }
+
+/* A table marked stack-narrow (People & Access) turns into one block per row on narrower
+   screens: the name on top, each other cell on its own labelled line (from data-label), and
+   the row's menu (stack-menu) in the top-right corner. */
+@media (max-width: 1205px) {
+    .table-scroll > table.report-table.stack-narrow {
+        width: 100%;
+        min-width: 0;
+    }
+
+    table.stack-narrow thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    table.stack-narrow tbody, table.stack-narrow tr, table.stack-narrow td {
+        display: block;
+    }
+
+    table.stack-narrow tr {
+        position: relative;
+        padding: 0.6rem 0;
+        border-bottom: 1px solid var(--tf-border);
+    }
+
+    table.report-table.stack-narrow td {
+        border-bottom: none;
+        padding: 0.2rem 0.25rem;
+    }
+
+    table.stack-narrow td[data-label] {
+        display: grid;
+        grid-template-columns: 7.5rem minmax(0, 1fr);
+        gap: 0.5rem;
+        align-items: baseline;
+    }
+
+        table.stack-narrow td[data-label]::before {
+            content: attr(data-label);
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--tf-text-muted);
+        }
+
+    table.report-table.stack-narrow td.stack-name {
+        font-weight: 600;
+        padding-right: 3rem;
+    }
+
+    table.stack-narrow .stack-email {
+        overflow-wrap: anywhere;
+    }
+
+    table.report-table.stack-narrow td.stack-menu {
+        position: absolute;
+        top: 0.5rem;
+        right: 0;
+        width: auto;
+        padding: 0;
+    }
+
+    table.stack-narrow .sign-in-pills, table.stack-narrow .badge-stack {
+        max-width: none;
+    }
+}
+
+/* Phones: labels go above their values. */
+@media (max-width: 480px) {
+    table.stack-narrow td[data-label] {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.1rem;
+    }
+}
+
+.row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+    .row-actions .btn {
+        min-height: 44px;
+        padding: 0.4rem 0.85rem;
+        font-size: 0.9rem;
+    }
+
+.blazor-error-boundary {
+    background: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIG92ZXJmbG93PSJoaWRkZW4iPjxkZWZzPjxjbGlwUGF0aCBpZD0iY2xpcDAiPjxyZWN0IHg9IjIzNSIgeT0iNTEiIHdpZHRoPSI1NiIgaGVpZ2h0PSI0OSIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMCkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMzUgLTUxKSI+PHBhdGggZD0iTTI2My41MDYgNTFDMjY0LjcxNyA1MSAyNjUuODEzIDUxLjQ4MzcgMjY2LjYwNiA1Mi4yNjU4TDI2Ny4wNTIgNTIuNzk4NyAyNjcuNTM5IDUzLjYyODMgMjkwLjE4NSA5Mi4xODMxIDI5MC41NDUgOTIuNzk1IDI5MC42NTYgOTIuOTk2QzI5MC44NzcgOTMuNTEzIDI5MSA5NC4wODE1IDI5MSA5NC42NzgyIDI5MSA5Ny4wNjUxIDI4OS4wMzggOTkgMjg2LjYxNyA5OUwyNDAuMzgzIDk5QzIzNy45NjMgOTkgMjM2IDk3LjA2NTEgMjM2IDk0LjY3ODIgMjM2IDk0LjM3OTkgMjM2LjAzMSA5NC4wODg2IDIzNi4wODkgOTMuODA3MkwyMzYuMzM4IDkzLjAxNjIgMjM2Ljg1OCA5Mi4xMzE0IDI1OS40NzMgNTMuNjI5NCAyNTkuOTYxIDUyLjc5ODUgMjYwLjQwNyA1Mi4yNjU4QzI2MS4yIDUxLjQ4MzcgMjYyLjI5NiA1MSAyNjMuNTA2IDUxWk0yNjMuNTg2IDY2LjAxODNDMjYwLjczNyA2Ni4wMTgzIDI1OS4zMTMgNjcuMTI0NSAyNTkuMzEzIDY5LjMzNyAyNTkuMzEzIDY5LjYxMDIgMjU5LjMzMiA2OS44NjA4IDI1OS4zNzEgNzAuMDg4N0wyNjEuNzk1IDg0LjAxNjEgMjY1LjM4IDg0LjAxNjEgMjY3LjgyMSA2OS43NDc1QzI2Ny44NiA2OS43MzA5IDI2Ny44NzkgNjkuNTg3NyAyNjcuODc5IDY5LjMxNzkgMjY3Ljg3OSA2Ny4xMTgyIDI2Ni40NDggNjYuMDE4MyAyNjMuNTg2IDY2LjAxODNaTTI2My41NzYgODYuMDU0N0MyNjEuMDQ5IDg2LjA1NDcgMjU5Ljc4NiA4Ny4zMDA1IDI1OS43ODYgODkuNzkyMSAyNTkuNzg2IDkyLjI4MzcgMjYxLjA0OSA5My41Mjk1IDI2My41NzYgOTMuNTI5NSAyNjYuMTE2IDkzLjUyOTUgMjY3LjM4NyA5Mi4yODM3IDI2Ny4zODcgODkuNzkyMSAyNjcuMzg3IDg3LjMwMDUgMjY2LjExNiA4Ni4wNTQ3IDI2My41NzYgODYuMDU0N1oiIGZpbGw9IiNGRkU1MDAiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjwvZz48L3N2Zz4=) no-repeat 1rem/1.8rem, #b32121;
+    padding: 1rem 1rem 1rem 3.7rem;
+    color: white;
+}
+
+    .blazor-error-boundary::after {
+        content: "An error has occurred."
+    }
+
+/* ---- Monthly detail report: right-aligned numbers, a divider before each column group ---- */
+/* Thirteen columns: tighter cells and slightly smaller text than other tables, so twelve months
+   fit a laptop screen without scrolling sideways or down. */
+table.monthly-report {
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Other scrolling tables size to their unwrapped content; this one takes the card's width and
+   only scrolls if the screen is narrower than its columns. */
+.table-scroll > table.monthly-report {
+    width: 100%;
+}
+
+    table.monthly-report th,
+    table.monthly-report td {
+        white-space: nowrap;
+        padding: 0.3rem 0.5rem;
+    }
+
+    /* A group heading can be wider than the two columns under it; wrapping keeps it from
+       stretching the table. */
+    table.monthly-report thead tr:first-child th {
+        white-space: normal;
+        line-height: 1.2;
+    }
+
+.monthly-report .num {
+    text-align: right;
+}
+
+.monthly-report thead tr:first-child th {
+    text-align: center;
+}
+
+    .monthly-report thead tr:first-child th:first-child {
+        text-align: left;
+        vertical-align: bottom;
+    }
+
+.monthly-report .group-start {
+    border-left: 2px solid var(--tf-border);
+}
+
+/* Deposits: an "other income" line, and the cash count grid (one box per denomination). */
+.deposit-other-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+    .deposit-other-line > * {
+        width: auto;
+        flex: 0 1 auto;
+    }
+
+    .deposit-other-line input[type="text"]:first-child {
+        flex: 1 1 14rem;
+    }
+
+.cash-count {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+    gap: 0.5rem;
+    max-width: 44rem;
+    margin-bottom: 0.75rem;
+}
+
+.cash-count-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-weight: 600;
+    color: var(--tf-navy);
+}
+
+    .cash-count-cell input {
+        width: 100%;
+    }
+
+/* Reconcile: statement balance, cleared balance and the difference, side by side. */
+.reconcile-totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 2.5rem;
+    margin-bottom: 1rem;
+}
+
+    .reconcile-totals div {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .reconcile-totals strong {
+        font-size: 1.35rem;
+    }
+
+/* Read by screen readers, not shown. */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* A totals row at the foot of a report table. */
+table.report-table tr.total-row td {
+    font-weight: 700;
+    border-top: 2px solid var(--tf-navy);
+}
+
+.monthly-report .monthly-total td {
+    font-weight: 700;
+    border-top: 2px solid var(--tf-navy);
+}
+
+/* The troop report's charts: SVG drawn at 720 wide, scaled to the card. On a phone they keep a
+   readable size and scroll sideways, like the report tables. */
+.trend-chart {
+    overflow-x: auto;
+}
+
+.trend-chart svg {
+    display: block;
+    width: 100%;
+    min-width: 600px;
+    height: auto;
+}
+
+/* Hovering, tapping or tabbing to a month shows its guide (dots or band) and the tooltip. */
+.trend-chart .chart-guide {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.trend-chart .chart-column:hover .chart-guide,
+.trend-chart .chart-column:focus-visible .chart-guide,
+.trend-chart .chart-column.is-active .chart-guide {
+    visibility: visible;
+}
+
+.trend-chart .chart-column {
+    cursor: crosshair;
+    outline: none;
+}
+
+.chart-hint {
+    margin-bottom: 0.25rem;
+}
+
+.chart-tooltip {
+    position: fixed;
+    z-index: 1200;
+    min-width: 200px;
+    padding: 0.5rem 0.75rem;
+    background: #fff;
+    border: 1px solid var(--tf-border, #d9dee5);
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(7, 37, 74, 0.18);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.chart-tooltip-label {
+    font-weight: 700;
+    color: var(--tf-navy);
+    margin-bottom: 0.3rem;
+}
+
+.chart-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.1rem 0;
+}
+
+.chart-tooltip-total {
+    border-top: 1px solid var(--tf-border, #d9dee5);
+    margin-top: 0.2rem;
+    padding-top: 0.3rem;
+    font-weight: 700;
+}
+
+.chart-tooltip-key {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--key-color, transparent);
+}
+
+.chart-tooltip-key-dashed {
+    height: 0;
+    border-radius: 0;
+    background: none;
+    border-top: 2px dashed var(--key-color);
+}
+
+.chart-tooltip-name {
+    flex: 1;
+}
+
+.chart-tooltip-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+/* ---- Installed app (home screen) ---- */
+
+/* "Add to Home Screen" banner (InstallPrompt.razor, driven by pwa-install.js). */
+.install-prompt {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin-bottom: 1.25rem;
+    padding: 0.85rem 1rem;
+    background: var(--tf-card-bg);
+    border: 1px solid var(--tf-border);
+    border-left: 4px solid var(--tf-gold);
+    border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(7, 37, 74, 0.08);
+}
+
+    .install-prompt[hidden],
+    .install-prompt [hidden] {
+        display: none !important;
+    }
+
+.install-prompt-icon {
+    flex: 0 0 auto;
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px var(--tf-border);
+}
+
+.install-prompt-text {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 0.15rem;
+    font-size: 0.92rem;
+    color: var(--tf-text-muted);
+}
+
+    .install-prompt-text strong {
+        color: var(--tf-navy);
+        font-size: 0.98rem;
+    }
+
+    .install-prompt-text .fa-solid {
+        color: var(--tf-navy);
+    }
+
+.install-prompt-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.35rem;
+}
+
+@media (max-width: 560px) {
+    .install-prompt {
+        flex-wrap: wrap;
+    }
+
+    .install-prompt-text {
+        flex-basis: calc(100% - 44px - 0.85rem);
+    }
+
+    .install-prompt-actions {
+        flex-basis: 100%;
+        justify-content: flex-end;
+    }
+}
+
+/* Opened from the home screen: stop the page rubber-banding past its ends and drop the grey tap
+   flash, so it feels like an app. Text stays selectable; only the chrome isn't. */
+@media (display-mode: standalone) {
+    html, body {
+        overscroll-behavior-y: none;
+    }
+
+    body {
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn,
+    .portal-nav,
+    .admin-nav,
+    .section-tabs {
+        -webkit-user-select: none;
+        user-select: none;
+    }
+}
+
+/* iPhone Safari zooms the page in when a text box under 16px gets focus. */
+@media (max-width: 700px) {
+    .filter-group input[type="date"],
+    .filter-group input[type="search"],
+    .filter-group select.view-picker,
+    .filter-save-form input[type="text"] {
+        font-size: 1rem;
+    }
+}

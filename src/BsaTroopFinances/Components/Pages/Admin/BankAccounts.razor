@@ -1,0 +1,87 @@
+@page "/admin/bank"
+@rendermode InteractiveServer
+@inject ITroopAccountService TroopAccountService
+
+<PageTitle>Bank Accounts</PageTitle>
+
+<div class="page-header-row">
+    <h1>Bank Accounts</h1>
+    <p class="hint">The troop&rsquo;s own money: bank accounts, Venmo and the cash box. Scout accounts are separate, on each scout&rsquo;s page.</p>
+</div>
+
+@if (_canWrite)
+{
+    <div class="action-bar">
+        <a class="btn btn-ghost" href="/admin/bank/entries/new?kind=@Uri.EscapeDataString(TroopTransactionKind.Expense)"><i class="fa-solid fa-receipt" aria-hidden="true"></i>Record an expense</a>
+        <a class="btn btn-ghost" href="/admin/bank/deposits"><i class="fa-solid fa-money-bill-transfer" aria-hidden="true"></i>Make a deposit</a>
+        <a class="btn btn-ghost" href="/admin/bank/transfer"><i class="fa-solid fa-right-left" aria-hidden="true"></i>Transfer between accounts</a>
+        <a class="btn btn-ghost" href="/admin/bank/accounts/new"><i class="fa-solid fa-plus" aria-hidden="true"></i>Add an account</a>
+    </div>
+}
+
+<div class="card">
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (_accounts.Count == 0)
+    {
+        <p>No accounts yet.</p>
+        <p class="hint">Add the troop&rsquo;s checking account first, with its balance on the day you start keeping it here. Payments and donations received from that day on can then be deposited into it.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Troop accounts">
+        <table class="report-table">
+            <thead>
+                <tr><th>Account</th><th>Balance</th><th>Cleared by the bank</th><th>Not yet cleared</th><th>Last reconciled</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var summary in _accounts)
+                {
+                    <tr>
+                        <td>
+                            <a href="@($"/admin/bank/accounts/{summary.Account.AccountId}")">@summary.Account.Name</a>
+                            @if (!summary.Account.IsActive)
+                            {
+                                <span class="badge badge-voided" style="margin-left:0.35rem;">Inactive</span>
+                            }
+                            <div class="hint">@summary.Account.Kind</div>
+                        </td>
+                        <td class="money @(summary.Balance < 0 ? "money-negative" : "")">@summary.Balance.ToString("C")</td>
+                        <td class="money">@summary.ClearedBalance.ToString("C")</td>
+                        <td>@(summary.UnclearedCount == 0 ? "—" : $"{summary.UnclearedCount} entr{(summary.UnclearedCount == 1 ? "y" : "ies")}")</td>
+                        <td>@(summary.LastReconciled?.UtcDateTime.ToString("MMM d, yyyy") ?? "Never")</td>
+                    </tr>
+                }
+                @if (_accounts.Count(a => a.Account.IsActive) > 1)
+                {
+                    <tr class="total-row">
+                        <td><strong>All active accounts</strong></td>
+                        <td class="money"><strong>@_accounts.Where(a => a.Account.IsActive).Sum(a => a.Balance).ToString("C")</strong></td>
+                        <td class="money">@_accounts.Where(a => a.Account.IsActive).Sum(a => a.ClearedBalance).ToString("C")</td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _canWrite;
+    private IReadOnlyList<BankAccountSummary> _accounts = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        _accounts = await TroopAccountService.GetSummariesAsync();
+        _loading = false;
+    }
+}

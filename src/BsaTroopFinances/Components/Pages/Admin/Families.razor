@@ -1,0 +1,268 @@
+@page "/admin/families"
+@rendermode InteractiveServer
+@inject IFamilyStatusService FamilyService
+@using BsaTroopFinances.Services
+
+<PageTitle>Families</PageTitle>
+
+<div class="page-header-row">
+    <h1>Families</h1>
+    <p class="hint">Guardians who share a scout are one family. Print family bills (what each family owes) or status sheets for the families you pick; printing changes nothing. Use a family's menu to record a payment or issue a new invoice to an adult.</p>
+</div>
+
+<div class="card">
+    <div class="filter-bar">
+        <div class="filter-group" role="group" aria-label="Select families">
+            <span class="filter-label">Select</span>
+            <div class="choice-grid-compact">
+                <button class="choice-btn choice-btn-compact" @onclick="SelectAll">All</button>
+                <button class="choice-btn choice-btn-compact" @onclick="() => _selected.Clear()">None</button>
+                <button class="choice-btn choice-btn-compact" @onclick="SelectOwing">Owing money</button>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label for="nameFilter" class="filter-label" style="margin-bottom:0;">Filter by name</label>
+            <input id="nameFilter" type="text" @bind="_nameFilter" @bind:event="oninput" placeholder="Start typing a name…" style="width:auto;" />
+        </div>
+        <div class="filter-group">
+            <label class="filter-label" style="margin-bottom:0;">
+                <input id="showInactive" type="checkbox" checked="@_includeInactive" @onchange="ToggleInactive" /> Show inactive guardians
+            </label>
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <div class="filter-group">
+            <label for="fromDate" class="filter-label" style="margin-bottom:0;">Status sheet from</label>
+            <input id="fromDate" type="date" @bind="_from" style="width:auto;" />
+        </div>
+        <div class="filter-group">
+            <label for="toDate" class="filter-label" style="margin-bottom:0;">to</label>
+            <input id="toDate" type="date" @bind="_to" style="width:auto;" />
+        </div>
+    </div>
+
+    <div class="action-bar">
+        @if (Owing.Any())
+        {
+            <a class="btn btn-ghost" id="printInvoices" target="_blank" rel="noopener" href="@InvoicesHref">
+                <i class="fa-solid fa-print" aria-hidden="true"></i>Print family bills (@Owing.Count())
+            </a>
+        }
+        else
+        {
+            <button class="btn btn-ghost" id="printInvoices" disabled title="None of the selected families owe anything">
+                <i class="fa-solid fa-print" aria-hidden="true"></i>Print family bills (0)
+            </button>
+        }
+        @if (Chosen.Any())
+        {
+            <a class="btn btn-ghost" id="printStatusSheets" target="_blank" rel="noopener" href="@StatusSheetsHref">
+                <i class="fa-solid fa-file-lines" aria-hidden="true"></i>Print status sheets (@Chosen.Count())
+            </a>
+        }
+        else
+        {
+            <button class="btn btn-ghost" id="printStatusSheets" disabled title="Select at least one family">
+                <i class="fa-solid fa-file-lines" aria-hidden="true"></i>Print status sheets (0)
+            </button>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <p>Loading&hellip;</p>
+    }
+    else if (_families.Count == 0)
+    {
+        <p>No guardians yet.</p>
+    }
+    else if (!Visible.Any())
+    {
+        <p>No families match this filter.</p>
+    }
+    else
+    {
+        <div class="table-scroll" role="region" tabindex="0" aria-label="Families">
+        <table class="report-table">
+            <thead>
+                <tr><th></th><th>Family</th><th>Scouts</th><th>Scout funds</th><th>Amount owed</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var family in Visible)
+                {
+                    <tr>
+                        <td>
+                            <input type="checkbox" checked="@_selected.Contains(family.Key)" @onchange="() => Toggle(family)" aria-label="Select @family.Family.Name" />
+                        </td>
+                        <td>
+                            @* Just this family's status sheet, for the dates picked above (same as the
+                               menu's "Print status sheet"). *@
+                            <a class="family-sheet-link" target="_blank" rel="noopener" href="@StatusSheetHref([family])"
+                               title="Open @family.Family.Name's status sheet">@family.Family.Name</a>
+                            @if (!family.HasActivity)
+                            {
+                                <span class="badge badge-pending" style="margin-left:0.35rem;" title="No scouts and never invoiced">Nothing on file</span>
+                            }
+                        </td>
+                        <td>
+                            @if (family.Scouts.Count == 0)
+                            {
+                                @if (family.HasAdultCharges)
+                                {
+                                    <span class="badge badge-approved">Adult charges only</span>
+                                }
+                            }
+                            else
+                            {
+                                @foreach (var scout in family.Scouts)
+                                {
+                                    <div>
+                                        <a href="@($"/admin/scouts/{scout.ScoutId}")">@scout.FullName</a>
+                                        @if (!scout.IsActive)
+                                        {
+                                            <span class="badge badge-voided" style="margin-left:0.35rem;" title="This scout is no longer active">Inactive</span>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </td>
+                        <td class="money @(family.ScoutFunds < 0 ? "money-negative" : "")">@(family.Scouts.Count == 0 ? "—" : family.ScoutFunds.ToString("C"))</td>
+                        <td class="money @(family.AmountOwed > 0 ? "money-negative" : "")">@family.AmountOwed.ToString("C")</td>
+                        <td>
+                            <div class="ellipsis-menu">
+                                <input type="checkbox" id="@($"familyMenu-{family.Key}")" class="ellipsis-menu-check" />
+                                <label for="@($"familyMenu-{family.Key}")" class="ellipsis-menu-toggle" aria-label="More actions for @family.Family.Name">
+                                    <i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i>
+                                </label>
+                                <div class="ellipsis-menu-panel">
+                                    <span class="ellipsis-menu-heading">Print</span>
+                                    <a class="ellipsis-menu-item" target="_blank" rel="noopener" href="@StatusSheetHref([family])">
+                                        <i class="fa-solid fa-print" aria-hidden="true"></i>
+                                        Print status sheet
+                                    </a>
+                                    @if (family.AmountOwed > 0)
+                                    {
+                                        <a class="ellipsis-menu-item" target="_blank" rel="noopener" href="@($"/admin/families/invoices?{Query([family])}")">
+                                            <i class="fa-solid fa-print" aria-hidden="true"></i>
+                                            Print family bill
+                                        </a>
+                                    }
+                                    @if (_canWrite)
+                                    {
+                                        <span class="ellipsis-menu-heading ellipsis-menu-divider">Record</span>
+                                        @if (family.AmountOwed > 0)
+                                        {
+                                            <a class="ellipsis-menu-item" href="@($"/admin/invoices/family-payment?guardianId={Uri.EscapeDataString(family.Key)}")">
+                                                <i class="fa-solid fa-money-check-dollar" aria-hidden="true"></i>
+                                                Record family payment
+                                            </a>
+                                        }
+                                        @foreach (var guardian in family.Family.Guardians.Where(g => g.IsActive))
+                                        {
+                                            <a class="ellipsis-menu-item" href="@($"/admin/invoices/new?guardianId={Uri.EscapeDataString(guardian.GuardianId)}")">
+                                                <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                                                New invoice for @guardian.FullName
+                                            </a>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Arriving from a guardian's menu: selects just that guardian's family.</summary>
+    [SupplyParameterFromQuery(Name = "g")]
+    private string? GuardianId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _includeInactive;
+    private string _nameFilter = string.Empty;
+    private IReadOnlyList<FamilyRow> _families = [];
+    private readonly HashSet<string> _selected = [];
+    private DateOnly _from;
+    private DateOnly _to;
+
+    private IEnumerable<FamilyRow> Visible => _families.Where(f =>
+        string.IsNullOrWhiteSpace(_nameFilter)
+        || f.Family.Name.Contains(_nameFilter, StringComparison.OrdinalIgnoreCase)
+        || f.Scouts.Any(s => s.FullName.Contains(_nameFilter, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>The ticked families still on screen: what the print buttons print.</summary>
+    private IEnumerable<FamilyRow> Chosen => Visible.Where(f => _selected.Contains(f.Key));
+
+    private IEnumerable<FamilyRow> Owing => Chosen.Where(f => f.AmountOwed > 0);
+
+    private static string Query(IEnumerable<FamilyRow> families) =>
+        string.Join("&", families.Select(f => "g=" + Uri.EscapeDataString(f.Key)));
+
+    private string InvoicesHref => $"/admin/families/invoices?{Query(Owing)}";
+
+    private string StatusSheetsHref => StatusSheetHref(Chosen);
+
+    private string StatusSheetHref(IEnumerable<FamilyRow> families) =>
+        $"/admin/families/status-sheets?{Query(families)}&from={_from:yyyy-MM-dd}&to={_to:yyyy-MM-dd}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        (_from, _to) = FamilyStatusService.Period(null, null, DateOnly.FromDateTime(DateTime.Now));
+        await LoadAsync();
+
+        if (!string.IsNullOrEmpty(GuardianId))
+        {
+            // A guardian can be picked while inactive, so make sure their family is listed.
+            if (!_families.Any(f => f.Family.Guardians.Any(g => g.GuardianId == GuardianId)))
+            {
+                _includeInactive = true;
+                await LoadAsync();
+            }
+
+            _selected.UnionWith(_families.Where(f => f.Family.Guardians.Any(g => g.GuardianId == GuardianId)).Select(f => f.Key));
+        }
+        else
+        {
+            _selected.UnionWith(_families.Where(f => f.HasActivity).Select(f => f.Key));
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _families = await FamilyService.GetFamiliesAsync(_includeInactive);
+        _loading = false;
+    }
+
+    private async Task ToggleInactive(ChangeEventArgs e)
+    {
+        _includeInactive = e.Value is true;
+        await LoadAsync();
+    }
+
+    private void Toggle(FamilyRow family)
+    {
+        if (!_selected.Remove(family.Key))
+        {
+            _selected.Add(family.Key);
+        }
+    }
+
+    private void SelectAll() => _selected.UnionWith(Visible.Select(f => f.Key));
+
+    private void SelectOwing()
+    {
+        _selected.Clear();
+        _selected.UnionWith(Visible.Where(f => f.AmountOwed > 0).Select(f => f.Key));
+    }
+}

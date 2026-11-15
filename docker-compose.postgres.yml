@@ -1,0 +1,40 @@
+# The same trial setup as docker-compose.yml, with PostgreSQL in place of SQL Server:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+#
+# Lighter than SQL Server, and runs natively on Apple-silicon Macs. Local trial use only, with a
+# placeholder password (override it in .env); see infra/HOSTING.md for a real deployment.
+
+services:
+  app:
+    environment:
+      Database__Provider: Postgres
+      ConnectionStrings__FinanceDb: "Host=postgres;Database=troop_finances;Username=troop;Password=${POSTGRES_PASSWORD:-local-only-password}"
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      files-owner:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+  # Left out: only started when asked for by name or profile.
+  sqlserver:
+    profiles: ["sqlserver"]
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: troop_finances
+      POSTGRES_USER: troop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-only-password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U troop -d troop_finances"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  pgdata:

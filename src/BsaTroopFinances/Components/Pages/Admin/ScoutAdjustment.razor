@@ -1,0 +1,109 @@
+@page "/admin/scouts/{Id}/adjust"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutAccountService ScoutAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Services
+
+<PageTitle>Manual Adjustment</PageTitle>
+
+<h1>Manual Adjustment</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_statement is null)
+{
+    <div class="alert alert-danger">Scout not found.</div>
+}
+else
+{
+    <div class="card">
+        <p><strong>@_statement.Scout.FullName</strong> &mdash; current balance:
+            <span class="money @(_statement.Scout.CachedBalance < 0 ? "money-negative" : "money-positive")">@_statement.Scout.CachedBalance.ToString("C")</span>
+        </p>
+        <p class="hint">The only way a balance can go negative, use for corrections. A reason is required.</p>
+        <div class="field">
+            <label for="adjAmount">Amount (negative to debit, positive to credit)</label>
+            <input id="adjAmount" data-money-input data-allow-negative type="text" inputmode="decimal" value="@_adjustmentAmountText" @oninput="SetAdjustmentAmount" @onchange="CommitAdjustmentAmount" />
+        </div>
+        <div class="field">
+            <label for="adjReason">Reason</label>
+            <input id="adjReason" type="text" @bind="_adjustmentReason" placeholder="Required" />
+        </div>
+        @if (_adjustError is not null)
+        {
+            <div class="alert alert-danger">@_adjustError</div>
+        }
+        <button class="btn btn-primary" disabled="@(_adjustmentAmount == 0 || string.IsNullOrWhiteSpace(_adjustmentReason) || _adjusting)" @onclick="ApplyAdjustment">
+            Apply adjustment
+        </button>
+        <a class="btn btn-outline-danger" href="@($"/admin/scouts/{Id}")">Cancel</a>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _adjusting;
+    private string? _adjustError;
+    private Models.ScoutStatementModel? _statement;
+
+    private decimal _adjustmentAmount;
+    private string _adjustmentAmountText = "$0.00";
+    private string _adjustmentReason = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _statement = await ScoutAccountService.GetScoutStatementAsync(Id);
+        _loading = false;
+    }
+
+    private async Task ApplyAdjustment()
+    {
+        if (_adjustmentAmount == 0 || string.IsNullOrWhiteSpace(_adjustmentReason) || _adjusting)
+        {
+            return;
+        }
+
+        _adjusting = true;
+        _adjustError = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var createdBy = authState?.User.Identity?.Name ?? "unknown";
+
+            await ScoutAccountService.ApplyManualAdjustmentAsync(Id, _adjustmentAmount, _adjustmentReason.Trim(), createdBy);
+            Navigation.NavigateTo($"/admin/scouts/{Id}");
+        }
+        catch (Exception)
+        {
+            _adjustError = "Couldn't apply this adjustment. Please try again.";
+            _adjusting = false;
+        }
+    }
+
+    private void SetAdjustmentAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _adjustmentAmountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _adjustmentAmount = AmountInputParser.ParseSigned(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAdjustmentAmount(ChangeEventArgs e)
+    {
+        SetAdjustmentAmount(e);
+        _adjustmentAmountText = AmountInputParser.Format(Math.Abs(_adjustmentAmount));
+        if (_adjustmentAmount < 0)
+        {
+            _adjustmentAmountText = $"-{_adjustmentAmountText}";
+        }
+    }
+}

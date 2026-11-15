@@ -1,0 +1,133 @@
+@inject TroopInfo Troop
+@* Layout for everything under /admin. Applied automatically to every page in the Admin folder
+   via Components/Pages/Admin/_Imports.razor (@layout AdminLayout), alongside the
+   [Authorize(Policy="AdminOnly")] attribute that actually protects these routes. *@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<div class="admin-shell">
+    @* The header and the section's page tabs stick to the top together. The tab bar is there on
+       every page, empty when a section has only one page, so headings always start in one place. *@
+    <div class="admin-top">
+    <header class="admin-header">
+        <a class="admin-brand" href="/admin">@Troop.Name - Admin</a>
+
+        @* Pure CSS checkbox toggle -- no Blazor event handler, so it works the instant the page
+           paints (including on static/non-interactive renders), not only once a SignalR circuit
+           is live. Checking the box is purely a CSS state driving the sibling content panel. *@
+        <input type="checkbox" id="adminMenuCheck" class="admin-menu-check" />
+        <label for="adminMenuCheck" class="admin-menu-toggle" aria-label="Menu">
+            <i class="fa-solid fa-bars" aria-hidden="true"></i>
+        </label>
+
+        @* Phones: tapping outside the More panel closes it (see the tab bar below). *@
+        <label for="adminMenuCheck" class="admin-menu-backdrop" aria-hidden="true"></label>
+
+        <div class="admin-header-content">
+            <nav class="admin-nav">
+                @foreach (var item in AdminSections.All)
+                {
+                    var current = item == _current;
+                    var inTabBar = PhoneTabs.Any(t => t.Section == item);
+                    <a href="@item.Href" class="@(current ? "active" : null) @(inTabBar ? "admin-nav-in-tabbar" : null)" aria-current="@(current ? "page" : null)">
+                        <i class="fa-solid @Icons[item.Href]" aria-hidden="true"></i>
+                        @item.Label
+                    </a>
+                }
+            </nav>
+            <AuthorizeView Context="authContext">
+                <Authorized>
+                    <span class="admin-user">
+                        @authContext.User.Identity?.Name
+                        @if (authContext.User.TemporaryEditUntil() is { } editUntil)
+                        {
+                            <a class="badge badge-paid" href="/admin/settings/edit-access" title="You turned on Edit access for a while. Click to end it early.">Editing until @editUntil.ToLocalTime().ToString("h:mm tt")</a>
+                        }
+                        else if (authContext.User.CanTurnOnEdit())
+                        {
+                            <a class="badge badge-approved" href="/admin/settings/edit-access" title="You have Read-only access. Click to turn on Edit for a few hours when you need it.">View only &middot; Turn on edit</a>
+                        }
+                        else if (!authContext.User.IsTroopFinanceWriter())
+                        {
+                            <span class="badge badge-approved" title="You have Read-only access: you can view treasurer data but not make changes. Ask an Editor if you need Edit access.">View only</span>
+                        }
+                    </span>
+                    <a class="admin-signout" href="/admin/settings"><i class="fa-solid fa-gear" aria-hidden="true"></i> Settings</a>
+                    <form method="post" action="/admin/signout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="admin-signout"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Sign out</button>
+                    </form>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </header>
+    <SectionTabs />
+    </div>
+
+    <main class="admin-main">
+        <InstallPrompt />
+        @Body
+    </main>
+
+    @* Phones only (see AdminLayout.razor.css), as in the troop's Hub app: the most-used sections
+       as an app-style tab bar along the bottom of the screen, within thumb reach. "More" opens
+       the header's menu as a panel from the bottom with the rest (Fundraising, Bank, Reports),
+       the signed-in person, Settings and Sign out. It's a label for the same CSS checkbox as
+       the ☰ button, so it works before the live connection is up. *@
+    <nav class="admin-tabbar" aria-label="Sections">
+        @foreach (var tab in PhoneTabs)
+        {
+            var current = tab.Section == _current;
+            <a href="@tab.Section.Href" class="@(current ? "active" : null)" aria-current="@(current ? "page" : null)" title="@tab.Section.Label">
+                <i class="fa-solid @Icons[tab.Section.Href]" aria-hidden="true"></i>
+                <span>@tab.Label</span>
+            </a>
+        }
+        <label for="adminMenuCheck" class="admin-tabbar-more @(OnMorePage ? "active" : null)" title="More">
+            <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+            <span>More</span>
+        </label>
+    </nav>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    // The header section the current page belongs to (see AdminSections), or null on Settings.
+    private AdminSection? _current;
+
+    protected override void OnParametersSet() =>
+        _current = AdminSections.Find(Navigation.ToBaseRelativePath(Navigation.Uri))?.Section;
+
+    // Each section's icon, keyed by its address: in the phone tab bar and beside its name in the menu.
+    private static readonly Dictionary<string, string> Icons = new()
+    {
+        ["/admin"] = "fa-house",
+        ["/admin/reimbursements"] = "fa-receipt",
+        ["/admin/invoices"] = "fa-file-invoice-dollar",
+        ["/admin/fundraisers"] = "fa-hand-holding-dollar",
+        ["/admin/families"] = "fa-people-roof",
+        ["/admin/bank"] = "fa-building-columns",
+        ["/admin/reports"] = "fa-chart-column",
+    };
+
+    // The phone tab bar: the four sections used most, with labels short enough for a phone.
+    private sealed record PhoneTab(AdminSection Section, string Label);
+
+    private static readonly PhoneTab[] PhoneTabs =
+    [
+        new(Section("/admin"), "Home"),
+        new(Section("/admin/reimbursements"), "Reimburse"),
+        new(Section("/admin/invoices"), "Invoices"),
+        new(Section("/admin/families"), "Families"),
+    ];
+
+    private static AdminSection Section(string href) => AdminSections.All.Single(s => s.Href == href);
+
+    // "More" is lit for the sections that live in it, and for Settings (no section).
+    private bool OnMorePage => PhoneTabs.All(t => t.Section != _current);
+}

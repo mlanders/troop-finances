@@ -1,0 +1,32 @@
+@* A page heading with an info button that shows or hides the page's help text, so long
+   explanations don't push the page's real content down. Use it inside .page-header-row in place
+   of the <h1>: the help box wraps onto its own line under the whole header row. *@
+
+<div class="page-title">
+    <h1>@Heading</h1>
+    <button type="button" class="page-help-toggle @(_open ? "open" : "")" id="pageHelpToggle"
+            aria-expanded="@(_open ? "true" : "false")" aria-controls="pageHelp"
+            title="@(_open ? "Hide help" : "About this page")" @onclick="() => _open = !_open">
+        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+        <span class="visually-hidden">@(_open ? "Hide help" : "About this page")</span>
+    </button>
+</div>
+@if (_open)
+{
+    <div class="page-help" id="pageHelp">
+        <button type="button" class="page-help-close" aria-label="Hide help" @onclick="() => _open = false">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+        @ChildContent
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Heading { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private bool _open;
+}

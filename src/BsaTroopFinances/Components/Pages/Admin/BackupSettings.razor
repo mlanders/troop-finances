@@ -1,0 +1,160 @@
+@page "/admin/settings/backups"
+@rendermode InteractiveServer
+@inject IBackupService BackupService
+@inject TimeProvider TimeProvider
+
+<PageTitle>Backups</PageTitle>
+
+<div class="page-header-row">
+    <h1>Backups</h1>
+    <a class="back-link" href="/admin/settings"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to settings</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (!BackupService.IsConfigured)
+{
+    <div class="alert alert-warning">Backups aren't set up: no backup storage is configured. See infra/DEPLOY.md (Azure) or infra/HOSTING.md (other hosts).</div>
+}
+else
+{
+    <div class="card">
+        <p class="hint" style="margin-top:0;">
+            Every table and receipt is copied to separate backup storage each night after 2:00 AM.
+            The newest @Services.BackupService.SnapshotsToKeep backups are kept.
+        </p>
+
+        @if (_loadError is not null)
+        {
+            <div class="alert alert-danger">@_loadError</div>
+        }
+        else if (_latest is null)
+        {
+            <div class="alert alert-danger">No backup has completed yet.</div>
+        }
+        else if (TimeProvider.GetUtcNow() - _latest.FinishedUtc > StaleAfter)
+        {
+            <div class="alert alert-danger">
+                The last successful backup finished @_latest.FinishedUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt") &mdash;
+                more than a day and a half ago. Check the app log for backup errors.
+            </div>
+        }
+        else
+        {
+            <p><strong>Last successful backup:</strong> @_latest.FinishedUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</p>
+        }
+
+        @if (_runMessage is not null)
+        {
+            <div class="alert @(_runSucceeded ? "alert-success" : "alert-danger")">@_runMessage</div>
+        }
+
+        @if (_canWrite)
+        {
+            <button class="btn btn-primary" disabled="@_running" @onclick="RunNowAsync">
+                @(_running ? "Backing up…" : "Run backup now")
+            </button>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Available backups (@_backups.Count)</h2>
+        @if (_backups.Count == 0)
+        {
+            <p class="hint">None yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Available backups">
+            <table class="report-table">
+                <thead><tr><th>Date</th><th>Finished</th><th>Table rows</th><th>Receipts</th></tr></thead>
+                <tbody>
+                    @foreach (var backup in _backups)
+                    {
+                        <tr>
+                            <td>@backup.Date</td>
+                            <td>@backup.FinishedUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>@backup.TotalRows.ToString("N0")</td>
+                            <td>@backup.ReceiptCount.ToString("N0") (@FormatBytes(backup.ReceiptBytes))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromHours(36);
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _running;
+    private bool _runSucceeded;
+    private string? _runMessage;
+    private string? _loadError;
+    private IReadOnlyList<BackupManifest> _backups = [];
+    private BackupManifest? _latest;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (!BackupService.IsConfigured)
+        {
+            return;
+        }
+
+        try
+        {
+            _backups = await BackupService.ListBackupsAsync();
+            _latest = _backups.FirstOrDefault();
+            _loadError = null;
+        }
+        catch (Exception)
+        {
+            _loadError = "Couldn't read the backup storage account.";
+        }
+    }
+
+    private async Task RunNowAsync()
+    {
+        if (!_canWrite || _running)
+        {
+            return;
+        }
+
+        _running = true;
+        _runMessage = null;
+        try
+        {
+            var result = await BackupService.RunBackupAsync();
+            _runSucceeded = result.Succeeded;
+            _runMessage = result.Message;
+            await LoadAsync();
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.#} MB",
+        >= 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes} B",
+    };
+}

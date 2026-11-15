@@ -1,0 +1,177 @@
+@page "/admin/settings/email"
+@rendermode InteractiveServer
+@inject IEmailSettingsRepository SettingsRepository
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+@using System.Net.Mail
+
+<PageTitle>Email Notifications</PageTitle>
+
+<div class="page-header-row">
+    <h1>Email Notifications</h1>
+    <a class="back-link" href="/admin/settings"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to settings</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="card">
+        <div class="field-row">
+            <label>
+                <input type="checkbox" checked disabled />
+                <span><strong>Login code</strong> &mdash; to the guardian signing in</span>
+            </label>
+            <span class="hint" style="margin-top:0;">Always on</span>
+        </div>
+        <div class="field-row">
+            <label>
+                <input type="checkbox" @bind="_receiptSubmittedEnabled" disabled="@(!_canWrite)" />
+                <span><strong>Receipt submitted</strong> &mdash; to the guardian, every Editor, and the addresses below</span>
+            </label>
+        </div>
+        <div class="field" style="margin-left:1.75rem;">
+            <label for="adminRecipients">Also send "Receipt submitted" to (comma separated)</label>
+            <textarea id="adminRecipients" rows="2" @bind="_adminRecipients" disabled="@(!_canWrite)"></textarea>
+            <span class="hint">For people who should hear about new receipts but don't sign in. Editors already get it.</span>
+        </div>
+        <div class="field-row">
+            <label>
+                <input type="checkbox" @bind="_receiptStatusEnabled" disabled="@(!_canWrite)" />
+                <span><strong>Receipt status update</strong> (approved, rejected, paid) &mdash; to the guardian</span>
+            </label>
+        </div>
+        <div class="field-row">
+            <label>
+                <input type="checkbox" @bind="_invoiceEnabled" disabled="@(!_canWrite)" />
+                <span><strong>Invoice</strong> &mdash; to the scout's guardians when an invoice is issued</span>
+            </label>
+        </div>
+        <div class="field-row">
+            <label>
+                <input type="checkbox" @bind="_editorGrantedEnabled" disabled="@(!_canWrite)" />
+                <span><strong>Edit access granted</strong> &mdash; to every Editor, the committee chair and the site administrator when someone is given Edit access</span>
+            </label>
+        </div>
+
+        @if (_settingsMessage is not null)
+        {
+            <div class="alert alert-success">@_settingsMessage</div>
+        }
+        @if (_settingsError is not null)
+        {
+            <div class="alert alert-danger">@_settingsError</div>
+        }
+
+        @if (_canWrite)
+        {
+            <button class="btn btn-primary" disabled="@_saving" @onclick="SaveSettingsAsync">Save settings</button>
+        }
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _canWrite;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _settingsMessage;
+    private string? _settingsError;
+
+    private bool _receiptSubmittedEnabled;
+    private bool _receiptStatusEnabled;
+    private bool _invoiceEnabled;
+    private bool _editorGrantedEnabled;
+    private string _adminRecipients = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        _canWrite = authState?.User.IsTroopFinanceWriter() ?? false;
+        var settings = await SettingsRepository.GetAsync();
+        _receiptSubmittedEnabled = settings.ReceiptSubmittedEnabled;
+        _receiptStatusEnabled = settings.ReceiptStatusEnabled;
+        _invoiceEnabled = settings.InvoiceEnabled;
+        _editorGrantedEnabled = settings.EditorGrantedEnabled;
+        _adminRecipients = string.Join(", ", settings.GetAdminRecipients());
+
+        _loading = false;
+    }
+
+    private static string? DescribeAddressProblem(string address)
+    {
+        if (address.Any(char.IsWhiteSpace))
+        {
+            return $"\"{address}\" contains a space -- separate addresses with commas.";
+        }
+
+        var atCount = address.Count(c => c == '@');
+        if (atCount == 0)
+        {
+            return $"\"{address}\" is missing an @ sign.";
+        }
+
+        if (atCount > 1)
+        {
+            return $"\"{address}\" has more than one @ sign.";
+        }
+
+        var domain = address[(address.IndexOf('@') + 1)..];
+        if (!MailAddress.TryCreate(address, out _) || !domain.Contains('.') || domain.StartsWith('.') || domain.EndsWith('.'))
+        {
+            return $"\"{address}\" is not a valid email address.";
+        }
+
+        return null;
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        if (!_canWrite || _saving)
+        {
+            return;
+        }
+
+        _settingsMessage = null;
+        _settingsError = null;
+
+        var recipients = _adminRecipients
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(GuardianEntity.NormalizeEmail)
+            .Distinct()
+            .ToList();
+        var problems = recipients.Select(DescribeAddressProblem).Where(p => p is not null).ToList();
+        if (problems.Count > 0)
+        {
+            _settingsError = $"Settings not saved. {string.Join(" ", problems)}";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await SettingsRepository.SaveAsync(new EmailSettingsEntity
+            {
+                ReceiptSubmittedEnabled = _receiptSubmittedEnabled,
+                ReceiptStatusEnabled = _receiptStatusEnabled,
+                InvoiceEnabled = _invoiceEnabled,
+                EditorGrantedEnabled = _editorGrantedEnabled,
+                AdminRecipients = string.Join('\n', recipients),
+            });
+            _adminRecipients = string.Join(", ", recipients);
+            _settingsMessage = "Email settings saved.";
+        }
+        catch (Exception)
+        {
+            _settingsError = "Couldn't save the email settings. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

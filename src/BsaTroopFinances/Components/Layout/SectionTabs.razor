@@ -1,0 +1,34 @@
+@* The current section's pages as a row of tabs (see AdminSections), in a bar under the header.
+   The bar is always drawn, at the same height, so page headings never shift; it's just empty when
+   the section has only one page the signed-in admin can open. *@
+@inject NavigationManager Navigation
+
+<div class="section-tabs-bar">
+    <div class="section-tabs-inner">
+        @if (_found is { } found && _tabs.Count > 1)
+        {
+            <nav class="section-tabs" aria-label="@found.Section.Label pages">
+                @foreach (var tab in _tabs)
+                {
+                    var current = tab == found.Tab;
+                    <a href="@tab.Href" class="section-tab @(current ? "active" : "")" aria-current="@(current ? "page" : null)">@tab.Label</a>
+                }
+            </nav>
+        }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private (AdminSection Section, AdminTab Tab)? _found;
+    private IReadOnlyList<AdminTab> _tabs = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _found = AdminSections.Find(Navigation.ToBaseRelativePath(Navigation.Uri));
+        var canWrite = AuthStateTask is not null && (await AuthStateTask).User.IsTroopFinanceWriter();
+        _tabs = _found is { } found ? found.Section.Tabs.Where(t => canWrite || !t.WritersOnly).ToList() : [];
+    }
+}

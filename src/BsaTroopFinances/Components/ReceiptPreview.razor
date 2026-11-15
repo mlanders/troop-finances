@@ -1,0 +1,48 @@
+@* Shows the receipt chosen in a file input (by its element id) before it's uploaded. The browser
+   draws it straight from the input via receipt-preview.js, so no file bytes cross the circuit just
+   to preview. Bump Version whenever a new file is picked so the preview redraws. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div id="@_containerId" class="@CssClass"></div>
+
+@code {
+    private readonly string _containerId = "receipt-preview-" + Guid.NewGuid().ToString("N");
+    private int? _renderedVersion;
+
+    [Parameter, EditorRequired]
+    public string InputId { get; set; } = string.Empty;
+
+    [Parameter]
+    public int Version { get; set; }
+
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_renderedVersion == Version)
+        {
+            return;
+        }
+
+        _renderedVersion = Version;
+        await JS.InvokeVoidAsync("receiptPreview.render", InputId, _containerId);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("receiptPreview.clear", _containerId);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone, and the page (and its object URLs) went with it.
+        }
+        catch (InvalidOperationException)
+        {
+            // Disposed during prerendering, before JS interop was available.
+        }
+    }
+}

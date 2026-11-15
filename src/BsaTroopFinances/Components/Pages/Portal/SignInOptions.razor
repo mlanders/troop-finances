@@ -1,0 +1,133 @@
+@page "/portal/sign-in-options"
+@inject TroopInfo Troop
+@rendermode InteractiveServer
+@inject IGuardianRepository GuardianRepository
+@inject IGuardianAuthenticatorService AuthenticatorService
+@using BsaTroopFinances.Data.Repositories
+@using System.Security.Claims
+
+@* Where a guardian links (or unlinks) an authenticator app. Emailed codes always keep working,
+   so this is purely an alternative -- nobody can lock themselves out from here. *@
+
+<PageTitle>Sign-in options</PageTitle>
+
+<h1>Sign-in options</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_guardian is null)
+{
+    <div class="alert alert-danger">Your session has expired. Please <a href="/portal/login">sign in again</a>.</div>
+}
+else
+{
+    <div class="card signin-option">
+        <div class="signin-option-head">
+            <h2><i class="fa-solid fa-envelope" aria-hidden="true"></i> Emailed code</h2>
+            <span class="badge badge-paid">Always on</span>
+        </div>
+        <p>Each time you sign in, we can email a 6-digit code to <strong>@_guardian.Email</strong>.</p>
+    </div>
+
+    <div class="card signin-option">
+        <div class="signin-option-head">
+            <h2><i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i> Authenticator app</h2>
+            @if (_authenticator is not null)
+            {
+                <span class="badge badge-paid">On</span>
+            }
+        </div>
+
+        @if (_authenticator is not null)
+        {
+            <p>Turned on @_authenticator.EnabledUtc.ToLocalTime().ToString("MMMM d, yyyy"). On the sign-in page, choose
+                <strong>Use my authenticator app</strong> and enter the code your app shows for @Troop.AuthenticatorName.</p>
+            <p class="hint">Got a new phone? Remove the app here and set it up again on the new one.</p>
+            <button class="btn btn-outline-danger" @onclick="() => _confirmingRemove = true">Remove authenticator app</button>
+        }
+        else if (!_settingUp)
+        {
+            <p>Skip waiting for the email: sign in with the 6-digit code from an authenticator app on your phone, such as
+                Google Authenticator, Microsoft Authenticator, 1Password or Apple Passwords. Emailed codes keep working too.</p>
+            <button class="btn btn-primary" @onclick="() => _settingUp = true">Set up authenticator app</button>
+        }
+        else
+        {
+            <AuthenticatorSetupSteps Guardian="_guardian" OnLinked="OnLinkedAsync" OnCancel="() => _settingUp = false" />
+        }
+    </div>
+
+    @if (_confirmingRemove)
+    {
+        <div class="confirmation-backdrop" @onclick="() => _confirmingRemove = false">
+            <section class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-authenticator-title" @onclick:stopPropagation="true">
+                <h2 id="remove-authenticator-title">Remove authenticator app?</h2>
+                <p>Its codes will stop working for @Troop.AppName. You can still sign in with an emailed code, and set up an app again any time.</p>
+                <p class="hint">You can also delete the @Troop.AuthenticatorName entry from the app itself.</p>
+                <div class="row-actions">
+                    <button class="btn btn-danger" disabled="@_saving" @onclick="RemoveAsync">Remove</button>
+                    <button class="btn btn-ghost" disabled="@_saving" @onclick="() => _confirmingRemove = false">Keep it</button>
+                </div>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private bool _settingUp;
+    private bool _confirmingRemove;
+    private GuardianEntity? _guardian;
+    private GuardianAuthenticatorEntity? _authenticator;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = AuthStateTask is not null ? await AuthStateTask : null;
+        var user = authState?.User;
+        var guardianId = user?.FindFirst("GuardianId")?.Value;
+        var email = user?.FindFirst(ClaimTypes.Email)?.Value;
+
+        _guardian = !string.IsNullOrWhiteSpace(guardianId)
+            ? await GuardianRepository.GetByIdAsync(guardianId)
+            : !string.IsNullOrWhiteSpace(email) ? await GuardianRepository.GetByEmailAsync(email) : null;
+
+        if (_guardian is not null)
+        {
+            _authenticator = await AuthenticatorService.GetAsync(_guardian.GuardianId);
+        }
+
+        _loading = false;
+    }
+
+    private async Task OnLinkedAsync()
+    {
+        _authenticator = await AuthenticatorService.GetAsync(_guardian!.GuardianId);
+        _settingUp = false;
+    }
+
+    private async Task RemoveAsync()
+    {
+        if (_guardian is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await AuthenticatorService.RemoveAsync(_guardian);
+            _authenticator = null;
+            _confirmingRemove = false;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

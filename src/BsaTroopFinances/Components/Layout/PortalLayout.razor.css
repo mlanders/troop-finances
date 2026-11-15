@@ -1,0 +1,224 @@
+.portal-shell {
+    min-height: 100vh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.portal-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.9rem 1.5rem;
+    background: white;
+    border-bottom: 4px solid var(--tf-gold);
+    box-shadow: 0 2px 12px rgba(7, 37, 74, 0.08);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    flex-wrap: wrap;
+}
+
+.portal-brand {
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-weight: 800;
+    color: var(--tf-navy);
+    text-decoration: none;
+    font-size: 1.05rem;
+    white-space: nowrap;
+}
+
+.portal-nav {
+    display: flex;
+    gap: 1.1rem;
+    flex: 1;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+    .portal-nav a {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 44px;
+        padding: 0.45rem 0.35rem;
+        color: var(--tf-navy);
+        font-weight: 600;
+        text-decoration: none;
+        font-size: 0.95rem;
+    }
+
+        .portal-nav a:hover,
+        .portal-nav a.active {
+            color: var(--tf-red);
+        }
+
+        /* On wider screens the icon is a small marker beside the full label. */
+        .portal-nav a .fa-solid {
+            font-size: 0.8em;
+        }
+
+.portal-nav-short {
+    display: none;
+}
+
+.portal-user {
+    color: var(--tf-text-muted);
+    font-size: 0.85rem;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 44px;
+}
+
+    .portal-user:hover {
+        color: var(--tf-navy);
+        text-decoration: underline;
+    }
+
+.portal-signout {
+    background: none;
+    border: none;
+    color: var(--tf-navy);
+    font-weight: 600;
+    text-decoration: underline;
+    font-size: 0.9rem;
+    cursor: pointer;
+    min-height: 44px;
+    padding: 0.45rem 0.35rem;
+    font-family: inherit;
+}
+
+.portal-main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem max(1.5rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+    flex: 1;
+    width: 100%;
+}
+
+/* Keep the sticky header clear of a notch or rounded corner when the installed app draws edge
+   to edge (viewport-fit=cover in App.razor). */
+.portal-header {
+    padding-top: max(0.9rem, env(safe-area-inset-top));
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+}
+
+/* Phones: brand, name and Sign out in a compact top bar; the three links become an app-style tab
+   bar fixed to the bottom of the screen, within thumb reach, with room for the home indicator. */
+@media (max-width: 700px) {
+    .portal-header {
+        gap: 0.5rem 0.75rem;
+        padding: max(0.5rem, env(safe-area-inset-top)) max(0.85rem, env(safe-area-inset-right)) 0.5rem max(0.85rem, env(safe-area-inset-left));
+        flex-wrap: nowrap;
+    }
+
+    .portal-brand {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .portal-user {
+        display: block;
+        min-width: 0;
+        max-width: 40vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 44px;
+    }
+
+    .portal-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        display: flex;
+        gap: 0;
+        overflow: visible;
+        background: white;
+        border-top: 1px solid var(--tf-border);
+        box-shadow: 0 -2px 12px rgba(7, 37, 74, 0.08);
+        padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+        .portal-nav a {
+            flex: 1 1 0;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.2rem;
+            min-height: 56px;
+            padding: 0.4rem 0.25rem;
+            font-size: 0.75rem;
+            color: var(--tf-text-muted);
+            position: relative;
+        }
+
+            .portal-nav a .fa-solid {
+                font-size: 1.25rem;
+            }
+
+            .portal-nav a.active {
+                color: var(--tf-red);
+            }
+
+                /* A short bar along the top edge marks the current tab. */
+                .portal-nav a.active::before {
+                    content: "";
+                    position: absolute;
+                    top: 0;
+                    left: 25%;
+                    right: 25%;
+                    height: 3px;
+                    border-radius: 0 0 3px 3px;
+                    background: var(--tf-red);
+                }
+
+    .portal-nav-label {
+        display: none;
+    }
+
+    .portal-nav-short {
+        display: inline;
+    }
+
+    /* Room for the tab bar (56px) plus the home indicator, so the last card isn't hidden. */
+    .portal-main {
+        padding: 1rem max(0.85rem, env(safe-area-inset-right)) calc(56px + 1.5rem + env(safe-area-inset-bottom)) max(0.85rem, env(safe-area-inset-left));
+    }
+
+    /* The error bar sits above the tab bar rather than under it. */
+    #blazor-error-ui {
+        bottom: calc(56px + env(safe-area-inset-bottom));
+    }
+}
+
+#blazor-error-ui {
+    color-scheme: light only;
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }

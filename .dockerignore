@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/publish/
+.git/
+.vs/
+.vscode/
+.claude/
+azurite-data/
+tests/
+infra/
+**/appsettings.*.local.json
+**/*.pfx
+**/*.user

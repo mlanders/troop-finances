@@ -1,0 +1,259 @@
+@page "/admin/reimbursements/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IGuardianRepository GuardianRepository
+@inject IGuardianScoutLinkRepository LinkRepository
+@inject IReimbursementService ReimbursementService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Submit a Receipt for a Guardian</PageTitle>
+
+<h1>Submit a Receipt for a Guardian</h1>
+<p>Enter a receipt on a guardian's behalf. It lands in the pending queue like any other request and shows up in that guardian's portal.</p>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_guardians.Count == 0)
+{
+    <div class="alert alert-info">
+        There are no active guardians yet. <a href="/admin/guardians/new">Add a guardian</a> first.
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="field">
+            <label for="guardian">Guardian to reimburse</label>
+            <select id="guardian" @bind="_guardianId" @bind:after="GuardianChangedAsync">
+                <option value="">-- Select a guardian --</option>
+                @foreach (var guardian in _guardians)
+                {
+                    <option value="@guardian.GuardianId">@guardian.FullName (@guardian.Email)</option>
+                }
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="scout">Scout (optional, leave blank for a trip or troop equipment cost)</label>
+            <select id="scout" @bind="_scoutId" disabled="@(_scouts.Count == 0)">
+                <option value="">-- None (general troop purchase) --</option>
+                @foreach (var scout in _scouts)
+                {
+                    <option value="@scout.ScoutId">@scout.ScoutName</option>
+                }
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="amount">Amount</label>
+            <input id="amount" class="receipt-amount" data-money-input type="text" inputmode="decimal" autocomplete="off" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+        </div>
+
+        <div class="field">
+            <label for="description">What was this for?</label>
+            <input id="description" type="text" @bind="_description" />
+        </div>
+
+        <div class="field">
+            <label for="receipt">Receipt (JPEG, PNG, or PDF, up to 10 MB)</label>
+            <div class="receipt-dropzone @(_isDragOver ? "receipt-dropzone-active" : string.Empty) @(_selectedFile is not null ? "receipt-dropzone-has-file" : string.Empty)"
+                 @ondragenter="() => _isDragOver = true"
+                 @ondragleave="() => _isDragOver = false"
+                 @ondragover:preventDefault>
+                <InputFile id="receipt" class="receipt-file-input" OnChange="OnFileSelected" accept=".jpg,.jpeg,.png,.pdf" />
+                @if (_selectedFile is null)
+                {
+                    <span>Drag and drop a receipt here, or click to browse</span>
+                }
+                else
+                {
+                    <div class="receipt-selected-file">
+                        <ReceiptPreview InputId="receipt" Version="_fileVersion" CssClass="receipt-file-preview" />
+                        <div class="receipt-selected-meta">
+                            <strong>@_selectedFile.Name</strong>
+                            <span>@((_selectedFile.Size / 1024.0).ToString("N0")) KB</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_error is not null && !_reviewing)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <div class="form-actions">
+            <button class="btn btn-primary" disabled="@(!CanSubmit || _saving)" @onclick="OpenReview">Review</button>
+            <a class="btn btn-outline-danger" href="/admin/reimbursements">Cancel</a>
+        </div>
+    </div>
+
+    @if (_reviewing && _selectedFile is not null)
+    {
+        <div class="confirmation-backdrop" @onclick="CloseReview">
+            <section class="confirmation-dialog confirmation-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="receipt-review-title" @onclick:stopPropagation="true">
+                <h2 id="receipt-review-title">Check this receipt</h2>
+                <p>Make sure everything looks right before it goes into the pending queue.</p>
+                <dl class="receipt-review-details">
+                    <dt>Guardian</dt>
+                    <dd>@(_guardians.FirstOrDefault(g => g.GuardianId == _guardianId)?.FullName)</dd>
+                    <dt>Scout</dt>
+                    <dd>@(_scouts.FirstOrDefault(s => s.ScoutId == _scoutId)?.ScoutName ?? "None (general troop purchase)")</dd>
+                    <dt>Amount</dt>
+                    <dd>@AmountInputParser.Format(_amount)</dd>
+                    <dt>What it was for</dt>
+                    <dd>@_description.Trim()</dd>
+                    <dt>Receipt</dt>
+                    <dd>@_selectedFile.Name</dd>
+                </dl>
+                <ReceiptPreview InputId="receipt" Version="_fileVersion" CssClass="receipt-review-preview" />
+
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+
+                <div class="row-actions">
+                    <button class="btn btn-primary" disabled="@_saving" @onclick="Submit">@(_saving ? "Submitting…" : "Submit")</button>
+                    <button class="btn btn-ghost" disabled="@_saving" @onclick="CloseReview">Back to edit</button>
+                </div>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
+
+    [SupplyParameterFromQuery(Name = "guardianId")]
+    private string? PreselectedGuardianId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private bool _isDragOver;
+    private bool _reviewing;
+    private int _fileVersion;
+    private string? _error;
+    private IReadOnlyList<Data.Entities.GuardianEntity> _guardians = [];
+    private IReadOnlyList<Data.Entities.GuardianScoutLinkEntity> _scouts = [];
+
+    private string _guardianId = string.Empty;
+    private string _scoutId = string.Empty;
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _description = string.Empty;
+    private IBrowserFile? _selectedFile;
+
+    private bool CanSubmit =>
+        !string.IsNullOrEmpty(_guardianId) && _amount > 0 && !string.IsNullOrWhiteSpace(_description) && _selectedFile is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _guardians = (await GuardianRepository.GetAllAsync())
+            .Where(g => g.IsActive)
+            .OrderBy(g => g.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!string.IsNullOrEmpty(PreselectedGuardianId) && _guardians.Any(g => g.GuardianId == PreselectedGuardianId))
+        {
+            _guardianId = PreselectedGuardianId;
+            await GuardianChangedAsync();
+        }
+
+        _loading = false;
+    }
+
+    private async Task GuardianChangedAsync()
+    {
+        _scoutId = string.Empty;
+        _scouts = string.IsNullOrEmpty(_guardianId) ? [] : await LinkRepository.GetScoutsForGuardianAsync(_guardianId);
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _isDragOver = false;
+        _error = null;
+
+        if (e.File.Size > MaxFileSizeBytes)
+        {
+            _error = "That file is too large -- receipts must be 10 MB or smaller.";
+            _selectedFile = null;
+            return;
+        }
+
+        _selectedFile = e.File;
+        _fileVersion++;
+    }
+
+    private void OpenReview()
+    {
+        _amountText = AmountInputParser.Format(_amount);
+        _error = null;
+        _reviewing = CanSubmit;
+    }
+
+    private void CloseReview()
+    {
+        if (!_saving)
+        {
+            _reviewing = false;
+            _error = null;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+
+    private async Task Submit()
+    {
+        var guardian = _guardians.FirstOrDefault(g => g.GuardianId == _guardianId);
+        if (!CanSubmit || _saving || _selectedFile is null || guardian is null)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var enteredBy = authState?.User.Identity?.Name ?? "unknown";
+            var scoutName = _scouts.FirstOrDefault(s => s.ScoutId == _scoutId)?.ScoutName;
+
+            await using var stream = _selectedFile.OpenReadStream(MaxFileSizeBytes);
+            var request = await ReimbursementService.SubmitAsync(
+                guardian.GuardianId, guardian.FullName, guardian.Email,
+                string.IsNullOrEmpty(_scoutId) ? null : _scoutId, scoutName,
+                _amount, _description.Trim(), stream, _selectedFile.ContentType, _selectedFile.Name, _selectedFile.Size,
+                submittedOnBehalfBy: enteredBy);
+
+            Navigation.NavigateTo($"/admin/reimbursements/{request.RequestId}?guardianId={Uri.EscapeDataString(guardian.GuardianId)}");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't submit this receipt. Check that it's a JPEG, PNG, or PDF and try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

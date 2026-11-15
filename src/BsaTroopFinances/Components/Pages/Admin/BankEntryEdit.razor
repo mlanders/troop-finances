@@ -1,0 +1,248 @@
+@page "/admin/bank/entries/new"
+@page "/admin/bank/accounts/{AccountId}/entries/{RowKey}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>@Title</PageTitle>
+
+<div class="page-header-row">
+    <h1>@Title</h1>
+    <a class="back-link" href="@BackUrl"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (!IsNew && _entry is null)
+{
+    <div class="alert alert-danger">Entry not found.</div>
+}
+else if (IsNew && _accounts.Count == 0)
+{
+    <div class="alert alert-info">Add an account first, on <a href="/admin/bank/accounts/new">Bank &rarr; Add an account</a>.</div>
+}
+else
+{
+    <div class="card">
+        @if (IsNew)
+        {
+            <div class="field">
+                <label for="kind">What kind of entry</label>
+                <select id="kind" @bind="_kind">
+                    @foreach (var (kind, moneyIn) in TroopTransactionKind.Manual)
+                    {
+                        <option value="@kind">@kind (money @(moneyIn ? "in" : "out"))</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label for="account">Account</label>
+                <select id="account" @bind="_accountId">
+                    @foreach (var account in _accounts)
+                    {
+                        <option value="@account.AccountId">@account.Name</option>
+                    }
+                </select>
+            </div>
+        }
+        else
+        {
+            <p class="hint" style="margin-top:0;">@_entry!.Kind in @(_accountName)@(IsPayout ? ". The amount and who was paid come from the reimbursement; only how it was paid can change here." : "")</p>
+        }
+
+        <div class="field">
+            <label for="date">Date</label>
+            <input id="date" type="date" @bind="_date" />
+        </div>
+        <div class="field">
+            <label for="amount">Amount</label>
+            <input id="amount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" disabled="@IsPayout" />
+        </div>
+        <div class="field">
+            <label for="payee">@(MoneyIn ? "From" : "Paid to")@(_kind == TroopTransactionKind.Expense ? "" : " (optional)")</label>
+            <input id="payee" type="text" @bind="_payee" @bind:event="oninput" disabled="@IsPayout"
+                   placeholder="@(MoneyIn ? "e.g. First Community Bank" : "e.g. Scout Shop, Camp Whitsett, Council")" />
+        </div>
+        <div class="field">
+            <label for="description">What it was for</label>
+            <input id="description" type="text" @bind="_description" @bind:event="oninput" disabled="@IsPayout" placeholder="e.g. Rank patches for court of honor" />
+        </div>
+        <div class="field">
+            <label for="reference">Check number or reference (optional)</label>
+            <input id="reference" type="text" @bind="_reference" @bind:event="oninput" />
+        </div>
+        @if (!IsPayout)
+        {
+            <div class="field">
+                <label for="receipt">Receipt (JPEG, PNG, or PDF, up to 10 MB; optional)</label>
+                <InputFile id="receipt" OnChange="OnFileSelected" accept=".jpg,.jpeg,.png,.pdf" />
+                @if (_file is not null)
+                {
+                    <p class="hint">Selected: @_file.Name (@((_file.Size / 1024.0).ToString("N0")) KB)@(_entry?.HasReceipt == true ? " — replaces the current receipt" : "")</p>
+                }
+                else if (_entry?.HasReceipt == true)
+                {
+                    <p class="hint"><a href="@($"/admin/bank/accounts/{_entry.AccountId}/entries/{Uri.EscapeDataString(_entry.RowKey)}/receipt")" target="_blank" rel="noopener">Current receipt</a></p>
+                }
+            </div>
+        }
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <div class="row-actions">
+            <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Save</button>
+            <a class="btn btn-outline-danger" href="@BackUrl">Cancel</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string? AccountId { get; set; }
+
+    [Parameter]
+    public string? RowKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "kind")]
+    private string? KindQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "account")]
+    private string? AccountQuery { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private const long MaxFileSizeBytes = 10 * 1024 * 1024;
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private IReadOnlyList<TroopAccountEntity> _accounts = [];
+    private TroopTransactionEntity? _entry;
+    private string _accountName = "";
+    private string _kind = TroopTransactionKind.Expense;
+    private string _accountId = "";
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Today);
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _payee = "";
+    private string _description = "";
+    private string _reference = "";
+    private IBrowserFile? _file;
+
+    private bool IsNew => string.IsNullOrEmpty(RowKey);
+
+    private bool IsPayout => _entry?.Kind == TroopTransactionKind.ReimbursementPayout;
+
+    private bool MoneyIn => IsNew
+        ? TroopTransactionKind.Manual.FirstOrDefault(m => m.Kind == _kind).MoneyIn
+        : _entry?.Amount > 0;
+
+    private string Title => IsNew ? "New Register Entry" : $"Edit {_entry?.Kind ?? "Entry"}";
+
+    private string BackUrl => IsNew
+        ? (string.IsNullOrEmpty(AccountQuery) ? "/admin/bank" : $"/admin/bank/accounts/{AccountQuery}")
+        : $"/admin/bank/accounts/{AccountId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsNew)
+        {
+            _accounts = (await BankRepository.GetAccountsAsync()).Where(a => a.IsActive).ToList();
+            _accountId = _accounts.FirstOrDefault(a => a.AccountId == AccountQuery)?.AccountId ?? _accounts.FirstOrDefault()?.AccountId ?? "";
+            if (TroopTransactionKind.Manual.Any(m => m.Kind == KindQuery))
+            {
+                _kind = KindQuery!;
+            }
+        }
+        else
+        {
+            _entry = await BankRepository.GetTransactionAsync(AccountId!, RowKey!);
+            if (_entry is not null)
+            {
+                _accountName = (await BankRepository.GetAccountAsync(_entry.AccountId))?.Name ?? "";
+                _date = DateOnly.FromDateTime(_entry.Date.UtcDateTime);
+                _amount = Math.Abs(_entry.Amount);
+                _amountText = AmountInputParser.Format(_amount);
+                _payee = _entry.Payee;
+                _description = _entry.Description;
+                _reference = _entry.Reference;
+            }
+        }
+
+        _loading = false;
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        if (e.File.Size > MaxFileSizeBytes)
+        {
+            _error = "That file is too large -- receipts must be 10 MB or smaller.";
+            _file = null;
+            return;
+        }
+
+        _file = e.File;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+            await using var stream = _file?.OpenReadStream(MaxFileSizeBytes);
+            var receipt = _file is null ? null : new ReceiptUpload(stream!, _file.ContentType, _file.Name, _file.Size);
+            if (IsNew)
+            {
+                await TroopAccountService.RecordEntryAsync(_accountId, _kind, _date, _amount, _payee, _description, _reference, receipt, actor);
+                Navigation.NavigateTo($"/admin/bank/accounts/{_accountId}");
+            }
+            else
+            {
+                await TroopAccountService.UpdateEntryAsync(AccountId!, RowKey!, _date, _amount, _payee, _description, _reference, receipt, actor);
+                Navigation.NavigateTo($"/admin/bank/accounts/{AccountId}");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save this entry. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+}

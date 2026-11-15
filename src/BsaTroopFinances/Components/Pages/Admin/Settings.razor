@@ -1,0 +1,76 @@
+@page "/admin/settings"
+@inject ITestDataLoader TestDataLoader
+@inject IAdminUserService AdminUsers
+
+<PageTitle>Settings</PageTitle>
+
+<h1>Settings</h1>
+<p>Pick an area below for its details and controls.</p>
+
+<div class="choice-grid dashboard-choice-grid">
+    <div class="card dash-card">
+        <div class="dash-card-header dash-navy"><h3>Email</h3></div>
+        <div class="dash-card-body">
+            <p class="hint">Turn notifications on or off, set who gets admin copies, and review everything sent.</p>
+            <div class="row-actions">
+                <a class="btn btn-secondary" href="/admin/settings/email">Manage notifications</a>
+                <a class="btn btn-secondary" href="/admin/settings/email-history">View sent email</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card dash-card">
+        <div class="dash-card-header dash-green"><h3>People &amp; access</h3></div>
+        <div class="dash-card-body">
+            <p class="hint">Who can sign into the admin area, who can make changes, and new sign-ins waiting for access.</p>
+            @if (_pendingRequests > 0)
+            {
+                <p><span class="badge badge-pending">@_pendingRequests waiting for access</span></p>
+            }
+            <a class="btn btn-secondary" href="/admin/settings/access">Manage access</a>
+        </div>
+    </div>
+
+    <AuthorizeView Context="authContext">
+        @if (authContext.User.CanTurnOnEdit())
+        {
+            <div class="card dash-card">
+                <div class="dash-card-header dash-gold"><h3>Temporary edit access</h3></div>
+                <div class="dash-card-body">
+                    <p class="hint">Turn on Edit for yourself for a few hours when something needs fixing.</p>
+                    <a class="btn btn-secondary" href="/admin/settings/edit-access">
+                        @(authContext.User.TemporaryEditUntil() is null ? "Turn on edit access" : "View or end edit access")
+                    </a>
+                </div>
+            </div>
+        }
+    </AuthorizeView>
+
+    <div class="card dash-card">
+        <div class="dash-card-header dash-red"><h3>Backups</h3></div>
+        <div class="dash-card-body">
+            <p class="hint">Nightly copies of all data and receipts, kept for two weeks.</p>
+            <a class="btn btn-secondary" href="/admin/settings/backups">View backups</a>
+        </div>
+    </div>
+
+    @if (TestDataLoader.IsEnabled)
+    {
+        <div class="card dash-card">
+            <div class="dash-card-header dash-purple"><h3>Test data</h3></div>
+            <div class="dash-card-body">
+                <p class="hint">Fill the site with a year of made-up activity before going live.</p>
+                <a class="btn btn-secondary" href="/admin/settings/test-data">Load test data</a>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int _pendingRequests;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _pendingRequests = (await AdminUsers.GetAllAsync()).Count(u => !u.HasAccess);
+    }
+}

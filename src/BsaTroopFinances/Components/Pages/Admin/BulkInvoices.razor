@@ -1,0 +1,191 @@
+@page "/admin/invoices/bulk"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IScoutRepository ScoutRepository
+@inject IScoutAccountService ScoutAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Bulk Invoices</PageTitle>
+
+<h1>Invoice Active Scouts</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="card">
+        <p>This will issue an invoice to each active scout ticked below. Scout-fund balances will not be applied.</p>
+
+        <div class="field">
+            <label for="frequency">Billing option</label>
+            <select id="frequency" @bind="_frequency" @bind:after="OnFrequencyChanged">
+                <option value="Annual">Annual invoice</option>
+                <option value="Monthly">Monthly installment</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label for="amount">Amount per scout</label>
+            <input id="amount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+            @if (_frequency == "Monthly")
+            {
+                <p class="hint">This issues the current monthly $12 installment only. Run it again for the next month.</p>
+            }
+        </div>
+
+        <div class="field">
+            <label for="dueDate">Due date</label>
+            <input id="dueDate" type="date" @bind="_dueDate" />
+        </div>
+
+        <div class="field">
+            <label for="description">Description</label>
+            <input id="description" type="text" @bind="_description" />
+        </div>
+
+        <fieldset class="field check-list-field">
+            <legend>Scouts to invoice (@SelectedScouts.Count of @_scouts.Count)</legend>
+            <div class="row-actions" style="margin-bottom:0.5rem;">
+                <button type="button" class="btn btn-secondary btn-sm" disabled="@(_excluded.Count == 0)" @onclick="() => _excluded.Clear()">Select all</button>
+                <button type="button" class="btn btn-secondary btn-sm" disabled="@(SelectedScouts.Count == 0)" @onclick="ExcludeAll">Select none</button>
+            </div>
+            <div class="check-list">
+                @foreach (var scout in _scouts)
+                {
+                    <label class="check-list-item">
+                        <input type="checkbox" checked="@(!_excluded.Contains(scout.ScoutId))" @onchange="() => Toggle(scout.ScoutId)" />
+                        @scout.FullName
+                    </label>
+                }
+            </div>
+        </fieldset>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        @if (_message is not null)
+        {
+            <div class="alert alert-success">@_message</div>
+        }
+
+        <p class="alert alert-warning">Review the amount, date, and scouts before issuing. This cannot be undone without voiding each invoice.</p>
+        <button class="btn btn-primary" disabled="@(!CanSubmit || _saving)" @onclick="IssueInvoices">Issue @_amount.ToString("C") to @SelectedScouts.Count scout@(SelectedScouts.Count == 1 ? "" : "s")</button>
+        <a class="btn btn-outline-danger" href="/admin/invoices">Cancel</a>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private string? _message;
+    private IReadOnlyList<Data.Entities.ScoutEntity> _scouts = [];
+
+    // Everyone is invoiced unless unticked, so a scout added later is never silently left out.
+    private readonly HashSet<string> _excluded = [];
+
+    private List<Data.Entities.ScoutEntity> SelectedScouts => _scouts.Where(s => !_excluded.Contains(s.ScoutId)).ToList();
+    private string _frequency = "Annual";
+    private decimal _amount = 120m;
+    private string _amountText = "$120.00";
+    private DateTime _dueDate = DateTime.Today.AddDays(14);
+    private string _description = "Yearly dues";
+
+    private bool CanSubmit => SelectedScouts.Count > 0 && _amount > 0 && _dueDate != default && !string.IsNullOrWhiteSpace(_description);
+
+    private void OnFrequencyChanged()
+    {
+        if (_frequency == "Monthly")
+        {
+            _amount = 12m;
+            _amountText = "$12.00";
+            _description = "Monthly dues";
+        }
+        else
+        {
+            _amount = 120m;
+            _amountText = "$120.00";
+            _description = "Yearly dues";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _scouts = (await ScoutRepository.GetActiveAsync()).OrderBy(s => s.FullName).ToList();
+        _loading = false;
+    }
+
+    private void Toggle(string scoutId)
+    {
+        if (!_excluded.Remove(scoutId))
+        {
+            _excluded.Add(scoutId);
+        }
+    }
+
+    private void ExcludeAll() => _excluded.UnionWith(_scouts.Select(s => s.ScoutId));
+
+    private async Task IssueInvoices()
+    {
+        if (!CanSubmit || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var issuedBy = authState?.User.Identity?.Name ?? "unknown";
+            // A calendar date, not a moment: stored as midnight UTC and displayed from its UTC date.
+            var dueDate = new DateTimeOffset(DateTime.SpecifyKind(_dueDate.Date, DateTimeKind.Unspecified), TimeSpan.Zero);
+            var description = _description.Trim();
+
+            var scouts = SelectedScouts;
+            foreach (var scout in scouts)
+            {
+                await ScoutAccountService.IssueInvoiceAsync(
+                    scout.ScoutId, _amount, 0, dueDate, description, issuedBy);
+            }
+
+            _message = $"Issued {_amount:C} invoices to {scouts.Count} scout{(scouts.Count == 1 ? "" : "s")}" +
+                (scouts.Count == _scouts.Count ? " (every active scout)." : $"; {_scouts.Count - scouts.Count} left out.");
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't issue the bulk invoices. Check the values and try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Deliberately doesn't touch _amountText (and so doesn't touch the DOM's value="..."
+        // attribute) here -- amount-input.js already reformats the input live and keeps the
+        // caret in place. Re-rendering the same text on every keystroke would make Blazor
+        // reapply value="..." via JS interop, which resets the caret to the end regardless of
+        // whether the string actually changed. Only _amount (for validation/disabled state)
+        // needs to update live; the text field is resynced once on blur by CommitAmount.
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+}

@@ -1,0 +1,141 @@
+@page "/admin/bank/transfer"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject ITroopBankRepository BankRepository
+@inject ITroopAccountService TroopAccountService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Transfer Between Accounts</PageTitle>
+
+<div class="page-header-row">
+    <h1>Transfer Between Accounts</h1>
+    <a class="back-link" href="/admin/bank"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>Back to accounts</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_accounts.Count < 2)
+{
+    <div class="alert alert-info">A transfer needs two accounts. <a href="/admin/bank/accounts/new">Add an account</a>, such as Venmo or the cash box.</div>
+}
+else
+{
+    <div class="card">
+        <p class="hint" style="margin-top:0;">For example, moving the Venmo balance into checking, or cash from the cash box to the bank.</p>
+        <div class="field">
+            <label for="from">From</label>
+            <select id="from" @bind="_fromId">
+                @foreach (var account in _accounts)
+                {
+                    <option value="@account.AccountId">@account.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="to">To</label>
+            <select id="to" @bind="_toId">
+                @foreach (var account in _accounts)
+                {
+                    <option value="@account.AccountId">@account.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="date">Date</label>
+            <input id="date" type="date" @bind="_date" />
+        </div>
+        <div class="field">
+            <label for="amount">Amount</label>
+            <input id="amount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+        </div>
+        <div class="field">
+            <label for="description">Note (optional)</label>
+            <input id="description" type="text" @bind="_description" @bind:event="oninput" placeholder="e.g. Venmo transfer to bank" />
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <div class="row-actions">
+            <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Transfer</button>
+            <a class="btn btn-outline-danger" href="/admin/bank">Cancel</a>
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "from")]
+    private string? FromQuery { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private IReadOnlyList<TroopAccountEntity> _accounts = [];
+    private string _fromId = "";
+    private string _toId = "";
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Today);
+    private decimal _amount;
+    private string _amountText = "$0.00";
+    private string _description = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _accounts = (await BankRepository.GetAccountsAsync()).Where(a => a.IsActive).ToList();
+        if (_accounts.Count >= 2)
+        {
+            // Usually Venmo or cash going to the bank.
+            var bank = _accounts.FirstOrDefault(a => a.Kind == TroopAccountKind.Bank) ?? _accounts[0];
+            _fromId = _accounts.FirstOrDefault(a => a.AccountId == FromQuery)?.AccountId
+                ?? _accounts.First(a => a.AccountId != bank.AccountId).AccountId;
+            _toId = _fromId == bank.AccountId ? _accounts.First(a => a.AccountId != bank.AccountId).AccountId : bank.AccountId;
+        }
+
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var actor = (AuthStateTask is not null ? (await AuthStateTask).User.Identity?.Name : null) ?? "unknown";
+            await TroopAccountService.TransferAsync(_fromId, _toId, _date, _amount, _description, actor);
+            Navigation.NavigateTo($"/admin/bank/accounts/{_fromId}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_amount);
+    }
+}

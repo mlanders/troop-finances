@@ -1,0 +1,18 @@
+@* Reached whenever AuthorizeRouteView hits a route the current (possibly anonymous) user isn't
+   authorized for. Branches by path since /admin/* and /portal/* have two entirely separate login
+   mechanisms (Microsoft/Google sign-in vs. emailed one-time code). *@
+@inject NavigationManager Navigation
+
+@code {
+    protected override void OnInitialized()
+    {
+        var isPortal = Navigation.Uri.Contains("/portal", StringComparison.OrdinalIgnoreCase);
+        var returnUrl = Uri.EscapeDataString("/" + Navigation.ToBaseRelativePath(Navigation.Uri));
+
+        var target = isPortal
+            ? $"/portal/login?returnUrl={returnUrl}"
+            : $"/admin/signin?returnUrl={returnUrl}";
+
+        Navigation.NavigateTo(target, forceLoad: true);
+    }
+}

@@ -1,0 +1,220 @@
+@page "/admin"
+@rendermode InteractiveServer
+@inject IReportingService ReportingService
+@inject IFundraiserEventRepository FundraiserRepository
+@inject IScoutRepository ScoutRepository
+@inject IGuardianRepository GuardianRepository
+@inject IFinanceAuditRepository AuditRepository
+@inject ITroopAccountService TroopAccountService
+@using BsaTroopFinances.Data
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>Dashboard</PageTitle>
+
+<h1>Dashboard</h1>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="card stat-card stat-card-navy">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-sack-dollar" aria-hidden="true"></i></span>
+                <h3>Pending Reimbursements</h3>
+            </div>
+            <p class="stat-card-number">@_summary!.PendingReimbursementCount</p>
+            <p class="hint">Waiting Review</p>
+            <hr class="stat-card-divider" />
+            <p class="stat-card-number-sm money">@_summary.PendingReimbursementTotal.ToString("C")</p>
+            <p class="hint">Total Value</p>
+            <a class="btn btn-primary" href="/admin/reimbursements">Review Queue <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+        </div>
+
+        <div class="card stat-card stat-card-red">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-file-invoice-dollar" aria-hidden="true"></i></span>
+                <h3>Outstanding Invoices</h3>
+            </div>
+            <p class="stat-card-number">@_summary.OutstandingInvoiceCount</p>
+            <p class="hint">Outstanding</p>
+            <hr class="stat-card-divider" />
+            <p class="stat-card-number-sm money">@_summary.OutstandingInvoiceTotal.ToString("C")</p>
+            <p class="hint">Total Due</p>
+            <a class="btn btn-danger" href="/admin/invoices">View Invoices <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+        </div>
+
+        <div class="card stat-card stat-card-green">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span>
+                <h3>Active Fundraisers</h3>
+            </div>
+            <p class="stat-card-number">@_activeFundraisers.Count</p>
+            <p class="hint">In Progress</p>
+            <hr class="stat-card-divider" />
+            <p class="stat-card-number-sm money">@ActiveFundraisersRaised.ToString("C")</p>
+            <p class="hint">Total Raised</p>
+            <a class="btn btn-success" href="/admin/fundraisers">Manage Fundraisers <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+        </div>
+
+        <div class="card stat-card stat-card-gold" id="troopAccounts">
+            <div class="stat-card-header">
+                <span class="stat-card-icon"><i class="fa-solid fa-building-columns" aria-hidden="true"></i></span>
+                <h3>Troop Accounts</h3>
+            </div>
+            @if (_bankAccounts.Count == 0)
+            {
+                <p class="hint">Keep the troop&rsquo;s own bank account, Venmo and cash box here: deposits, expenses and monthly reconciliation.</p>
+                <a class="btn btn-secondary" href="/admin/bank">Set Up Accounts <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+            }
+            else
+            {
+                <p class="stat-card-number money">@_bankAccounts.Where(a => a.Account.IsActive).Sum(a => a.Balance).ToString("C")</p>
+                <p class="hint">In @_bankAccounts.Count(a => a.Account.IsActive) account@(_bankAccounts.Count(a => a.Account.IsActive) == 1 ? "" : "s")</p>
+                <hr class="stat-card-divider" />
+                <p class="stat-card-number-sm money">@_undeposited.Sum(i => i.Amount).ToString("C")</p>
+                <p class="hint">@_undeposited.Count item@(_undeposited.Count == 1 ? "" : "s") waiting to be deposited</p>
+                <a class="btn btn-secondary" href="@(_undeposited.Count > 0 ? "/admin/bank/deposits" : "/admin/bank")">@(_undeposited.Count > 0 ? "Make a Deposit" : "View Accounts") <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+            }
+        </div>
+    </div>
+
+    <div class="overview-grid">
+        <div class="card">
+            <div class="section-header">
+                <h2 class="section-header-title" style="color:var(--tf-green);"><span class="stat-card-icon stat-card-green"><i class="fa-solid fa-bullhorn" aria-hidden="true"></i></span> Active Fundraisers</h2>
+                <a class="hint" href="/admin/fundraisers">View All</a>
+            </div>
+            @if (_activeFundraisers.Count == 0)
+            {
+                <p class="hint">No active fundraisers.</p>
+            }
+            else
+            {
+                <ul style="list-style:none;padding:0;margin:0;">
+                    @foreach (var fundraiser in _activeFundraisers)
+                    {
+                        var raised = (fundraiser.TotalRaised ?? 0);
+                        var itemPct = fundraiser.GoalAmount is > 0
+                            ? (int)Math.Round(raised / fundraiser.GoalAmount.Value * 100)
+                            : 0;
+                        <li class="fundraiser-item">
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;">
+                                <a href="@($"/admin/fundraisers/{fundraiser.EventId}")"><strong>@fundraiser.Name</strong></a>
+                                <span class="hint">@fundraiser.EventDate.UtcDateTime.ToString("MMM d, yyyy")</span>
+                            </div>
+                            <div class="progress-track stat-card-green"><div class="progress-fill" style="width:@(itemPct)%;"></div></div>
+                            @if (fundraiser.GoalAmount is > 0)
+                            {
+                                <span class="hint">@raised.ToString("C") raised of @((fundraiser.GoalAmount.Value).ToString("C")) &mdash; @itemPct%</span>
+                            }
+                            else
+                            {
+                                <span class="hint">@raised.ToString("C") total raised</span>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="card">
+            <div class="section-header">
+                <h2 class="section-header-title"><span class="stat-card-icon stat-card-navy"><i class="fa-solid fa-users" aria-hidden="true"></i></span> Roster Overview</h2>
+            </div>
+            <div class="overview-subgrid">
+                <div class="overview-subcard stat-card-navy">
+                    <div class="overview-subcard-header">
+                        <span class="stat-card-icon"><i class="fa-solid fa-user" aria-hidden="true"></i></span>
+                        <div>
+                            <p class="stat-card-number-sm">@_activeScoutCount</p>
+                            <p class="hint">Scouts</p>
+                        </div>
+                    </div>
+                    <p class="hint" style="padding-top:0.35rem;">View and manage scout information, ranks, and status.</p>
+                    <a class="btn btn-secondary" href="/admin/scouts">Manage Scouts <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+                </div>
+                <div class="overview-subcard stat-card-purple">
+                    <div class="overview-subcard-header">
+                        <span class="stat-card-icon"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span>
+                        <div>
+                            <p class="stat-card-number-sm">@_activeGuardianCount</p>
+                            <p class="hint">Guardians</p>
+                        </div>
+                    </div>
+                    <p class="hint" style="padding-top:0.35rem;">View and manage guardian contacts and permissions.</p>
+                    <a class="btn btn-secondary" href="/admin/guardians">Manage Guardians <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <h2 class="section-header-title"><span class="stat-card-icon stat-card-navy"><i class="fa-solid fa-clock" aria-hidden="true"></i></span> Recent Activity</h2>
+            <a class="hint" href="/admin/settings/activity">View All</a>
+        </div>
+        @if (_recentActivity.Count == 0)
+        {
+            <p class="hint">No activity yet.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var entry in _recentActivity)
+                {
+                    var (icon, colorClass) = FinanceAuditEntityType.IconFor(entry.EntityType);
+                    <li class="timeline-item">
+                        <span class="timeline-dot @colorClass"><i class="fa-solid @icon" aria-hidden="true"></i></span>
+                        <span class="hint timeline-when">@entry.OccurredUtc.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                        <span>
+                            <strong><a href="@FinanceAuditEntityType.DetailUrl(entry.EntityType, entry.EntityId)">@entry.EntityType</a></strong>
+                            &mdash; @entry.Action
+                            @if (!string.IsNullOrEmpty(entry.Actor))
+                            {
+                                <span class="hint"> by @entry.Actor</span>
+                            }
+                            @if (!string.IsNullOrEmpty(entry.Details) || !string.IsNullOrEmpty(entry.Notes))
+                            {
+                                <br /><span class="hint">@entry.Details @entry.Notes</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private Models.ReportSummaryModel? _summary;
+    private IReadOnlyList<BankAccountSummary> _bankAccounts = [];
+    private IReadOnlyList<UndepositedItem> _undeposited = [];
+    private IReadOnlyList<Data.Entities.FundraiserEventEntity> _activeFundraisers = [];
+    private int _activeScoutCount;
+    private int _activeGuardianCount;
+    private IReadOnlyList<Data.Entities.FinanceAuditEntryEntity> _recentActivity = [];
+
+    private decimal ActiveFundraisersRaised => _activeFundraisers.Sum(f => f.TotalRaised ?? 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _summary = await ReportingService.GetSummaryAsync();
+        _bankAccounts = await TroopAccountService.GetSummariesAsync();
+        _undeposited = _bankAccounts.Count == 0 ? [] : await TroopAccountService.GetUndepositedAsync();
+        var fundraisers = await FundraiserRepository.GetAllAsync();
+        _activeFundraisers = fundraisers
+            .Where(f => f.StatusValue == FundraiserEventStatus.Open)
+            .OrderBy(f => f.EventDate)
+            .ToList();
+        var scouts = await ScoutRepository.GetActiveAsync();
+        _activeScoutCount = scouts.Count;
+        var guardians = await GuardianRepository.GetAllAsync();
+        _activeGuardianCount = guardians.Count(g => g.IsActive);
+        _recentActivity = await AuditRepository.GetRecentAsync(10);
+        _loading = false;
+    }
+}

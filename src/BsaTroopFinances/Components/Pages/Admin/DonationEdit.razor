@@ -1,0 +1,209 @@
+@page "/admin/donations/new"
+@page "/admin/donations/{Id}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "AdminWriter")]
+@inject IDonationRepository DonationRepository
+@inject IDonationService DonationService
+@inject NavigationManager Navigation
+@using BsaTroopFinances.Data.Repositories
+
+<PageTitle>@(IsNew ? "Record a Donation" : "Edit Donation")</PageTitle>
+
+<div class="page-header-row">
+    <h1>@(IsNew ? "Record a Donation" : "Edit Donation")</h1>
+    <a class="back-link" href="@BackUrl"><span aria-hidden="true" style="margin-right:0.35rem;">&larr;</span>@(IsNew ? "Back to donations" : "Back to donation")</a>
+</div>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_donation is null)
+{
+    <div class="alert alert-danger">Donation not found.</div>
+}
+else
+{
+    <div class="card">
+        <h2>Donor</h2>
+        <div class="field">
+            <label for="donorName">From</label>
+            <input id="donorName" type="text" @bind="_donation.DonorName" @bind:event="oninput" placeholder="e.g. The Rivera family, Main Street Hardware" />
+        </div>
+        <div class="field">
+            <label class="check-list-item">
+                <input type="checkbox" @bind="_donation.IsAnonymous" />
+                Anonymous &mdash; families see &ldquo;Anonymous donation&rdquo; on their scout&rsquo;s account
+            </label>
+        </div>
+        <div class="field">
+            <label for="donorEmail">Email (optional)</label>
+            <input id="donorEmail" type="email" autocomplete="off" @bind="_donation.DonorEmail" />
+        </div>
+        <div class="field">
+            <label for="donorAddress">Mailing address (optional)</label>
+            <textarea id="donorAddress" rows="2" @bind="_donation.DonorAddress"></textarea>
+            <p class="hint">For a thank-you letter.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Gift</h2>
+        <div class="field">
+            <label for="received">Date received</label>
+            <input id="received" type="date" @bind="_receivedDate" />
+        </div>
+        <div class="field">
+            <label for="method">How it was given</label>
+            <select id="method" @bind="_donation.Method" disabled="@(_credited > 0)">
+                @foreach (var method in DonationMethod.All)
+                {
+                    <option value="@method">@method</option>
+                }
+            </select>
+            @if (_credited > 0)
+            {
+                <p class="hint">Part of this gift has been credited to scouts, so it can't become goods.</p>
+            }
+        </div>
+        <div class="field">
+            <label for="reference">@DonationMethod.ReferenceLabel(_donation.Method)</label>
+            <input id="reference" type="text" @bind="_donation.Reference" @bind:event="oninput" placeholder="@DonationMethod.ReferencePlaceholder(_donation.Method)" />
+        </div>
+        <div class="field">
+            <label for="amount">@(_donation.IsInKind ? "Estimated value" : "Amount")</label>
+            <input id="amount" data-money-input type="text" inputmode="decimal" value="@_amountText" @oninput="SetAmount" @onchange="CommitAmount" />
+            @if (_credited > 0)
+            {
+                <p class="hint">@_credited.ToString("C") has been credited to scouts, so the amount can't be less than that.</p>
+            }
+        </div>
+        <div class="field">
+            <label class="check-list-item">
+                <input type="checkbox" @bind="_donation.IsRestricted" />
+                The donor said what the gift is for
+            </label>
+        </div>
+        @if (_donation.IsRestricted)
+        {
+            <div class="field">
+                <label for="purpose">What it&rsquo;s for</label>
+                <input id="purpose" type="text" @bind="_donation.Purpose" @bind:event="oninput" placeholder="e.g. Summer camp scholarships, new tents" />
+            </div>
+        }
+        <div class="field">
+            <label for="notes">Notes (optional)</label>
+            <textarea id="notes" rows="2" @bind="_donation.Notes"></textarea>
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+
+        <div class="row-actions">
+            <button class="btn btn-primary" disabled="@_saving" @onclick="() => SaveAsync(creditNext: false)">Save</button>
+            @if (IsNew && !_donation.IsInKind)
+            {
+                <button class="btn btn-secondary" disabled="@_saving" @onclick="() => SaveAsync(creditNext: true)">Save and credit scouts</button>
+            }
+            <a class="btn btn-outline-danger" href="@BackUrl">Cancel</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string? Id { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+    private DonationEntity? _donation;
+    private DateOnly _receivedDate = DateOnly.FromDateTime(DateTime.Today);
+    private string _amountText = "$0.00";
+    private decimal _credited;
+
+    private bool IsNew => string.IsNullOrEmpty(Id);
+
+    private string BackUrl => IsNew ? "/admin/donations" : $"/admin/donations/{Id}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (IsNew)
+        {
+            _donation = new DonationEntity { Method = InvoicePaymentMethod.Check };
+        }
+        else
+        {
+            _donation = await DonationRepository.GetByIdAsync(Id!);
+            if (_donation is not null)
+            {
+                _receivedDate = DateOnly.FromDateTime(_donation.ReceivedDate.UtcDateTime);
+                _amountText = AmountInputParser.Format(_donation.Amount);
+                _credited = (await DonationService.GetCreditsAsync(_donation.DonationId)).Sum(e => e.Amount);
+            }
+        }
+
+        _loading = false;
+    }
+
+    private async Task SaveAsync(bool creditNext)
+    {
+        if (_donation is null || _saving)
+        {
+            return;
+        }
+
+        _saving = true;
+        _error = null;
+        try
+        {
+            var authState = AuthStateTask is not null ? await AuthStateTask : null;
+            var actor = authState?.User.Identity?.Name ?? "unknown";
+            // A calendar date, not a moment: stored as midnight UTC and displayed from its UTC date.
+            _donation.ReceivedDate = new DateTimeOffset(_receivedDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+            if (IsNew)
+            {
+                await DonationService.RecordAsync(_donation, actor);
+            }
+            else
+            {
+                await DonationService.UpdateAsync(_donation, actor);
+            }
+
+            Navigation.NavigateTo(creditNext
+                ? $"/admin/donations/{_donation.DonationId}/credit"
+                : $"/admin/donations/{_donation.DonationId}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save this donation. Please try again.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void SetAmount(ChangeEventArgs e)
+    {
+        // Doesn't touch _amountText during typing -- see BulkInvoices.razor's SetAmount for why.
+        _donation!.Amount = AmountInputParser.Parse(e.Value?.ToString() ?? string.Empty);
+        StateHasChanged();
+    }
+
+    private void CommitAmount(ChangeEventArgs e)
+    {
+        SetAmount(e);
+        _amountText = AmountInputParser.Format(_donation!.Amount);
+    }
+}
