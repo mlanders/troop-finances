@@ -12,7 +12,9 @@ WORKDIR /src
 # Restore first, on its own layer, so code changes don't re-download every package.
 COPY global.json ./
 COPY src/BsaTroopFinances/BsaTroopFinances.csproj src/BsaTroopFinances/
-RUN dotnet restore src/BsaTroopFinances/BsaTroopFinances.csproj -r linux-x64
+# PublishReadyToRun here too: restore is what downloads the ReadyToRun compiler (Crossgen2) that
+# the publish step below needs, and that step runs with --no-restore.
+RUN dotnet restore src/BsaTroopFinances/BsaTroopFinances.csproj -r linux-x64 -p:PublishReadyToRun=true
 
 COPY src/BsaTroopFinances/ src/BsaTroopFinances/
 # ReadyToRun compiles ahead of time, so a host that stops the app when idle starts it again
