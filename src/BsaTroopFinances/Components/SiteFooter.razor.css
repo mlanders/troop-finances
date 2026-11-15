@@ -1,0 +1,29 @@
+.site-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.35rem 0.6rem;
+    padding: 1rem 1.5rem max(1.25rem, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--tf-border);
+    font-size: 0.85rem;
+    color: var(--tf-text-muted);
+}
+
+    .site-footer a {
+        color: var(--tf-text-muted);
+    }
+
+        .site-footer a:hover {
+            color: var(--tf-navy);
+        }
+
+.site-footer-version {
+    font-variant-numeric: tabular-nums;
+}
+
+@media print {
+    .site-footer {
+        display: none;
+    }
+}
