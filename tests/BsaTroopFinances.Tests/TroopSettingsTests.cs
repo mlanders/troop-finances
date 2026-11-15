@@ -90,8 +90,10 @@ public partial class TroopSettingsTests
             Assert.Equal(SKColors.White, bitmap.GetPixel(0, 0));            // opaque, as iPhones need
             Assert.Contains(Pixels(bitmap), p => p.Red > 180 && p.Green < 60 && p.Blue < 70);   // the fleur-de-lis
             Assert.Contains(Pixels(bitmap), p => p.Red > 220 && p.Green > 160 && p.Blue < 60);  // the coin
-            // The caption sits centred under the mark; the coin's navy "$" is off to the right.
-            var captionRows = Pixels(bitmap, SKRectI.Create((int)(size * 0.42), (int)(size * 0.64), (int)(size * 0.16), (int)(size * 0.18))).Count(p => p.Blue > 100 && p.Red < 40);
+            // The caption sits centred under the mark, so its first character covers the area just
+            // left of centre. Only that side is checked: the coin's navy "$" is off to the right, and
+            // with Linux's font (DejaVu, wider than Windows' Arial) its edge reaches about 57% across.
+            var captionRows = Pixels(bitmap, SKRectI.Create((int)(size * 0.40), (int)(size * 0.64), (int)(size * 0.12), (int)(size * 0.18))).Count(p => p.Blue > 100 && p.Red < 40);
             Assert.True(caption.Length > 0 ? captionRows > 0 : captionRows == 0, $"{file}: {captionRows} navy pixels in the caption area");
 
             if (Environment.GetEnvironmentVariable("TROOPFIN_ICON_DUMP") is { Length: > 0 } folder)
