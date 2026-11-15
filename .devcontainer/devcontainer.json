@@ -5,7 +5,9 @@
 // For trying it out only, like docker compose locally: never for a troop's real records.
 {
   "name": "Troop Finances",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  // A fixed Ubuntu release, not "ubuntu" (the newest): Docker-in-Docker's packages (moby) arrive
+  // for a new release some time after it does, so "ubuntu" can break without any change here.
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/dotnet:2": {
