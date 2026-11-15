@@ -132,6 +132,35 @@ public partial class TroopSettingsTests
         Assert.Equal("https://troop-finances.onrender.com/", TroopInfo.From(config).SiteUrl);
     }
 
+    [Theory]
+    [InlineData("RAILWAY_PUBLIC_DOMAIN", "troop-finances-production.up.railway.app", null, null, "https://troop-finances-production.up.railway.app/")]
+    [InlineData("FLY_APP_NAME", "troop52-finance", null, null, "https://troop52-finance.fly.dev/")]
+    [InlineData("CONTAINER_APP_NAME", "troop-finances", "CONTAINER_APP_ENV_DNS_SUFFIX", "happy-hill-1234.westus3.azurecontainerapps.io", "https://troop-finances.happy-hill-1234.westus3.azurecontainerapps.io/")]
+    public void Other_hosts_supply_the_site_address_too(string key, string value, string? key2, string? value2, string expected)
+    {
+        (string, string)[] host = key2 is null ? [(key, value)] : [(key, value), (key2, value2!)];
+        var config = Config([.. Complete.Where(s => s.Item1 != "Troop:SiteUrl"), .. host]);
+
+        Assert.Empty(TroopInfo.Problems(config));
+        Assert.Equal(expected, TroopInfo.From(config).SiteUrl);
+    }
+
+    [Fact]
+    public void A_site_address_that_is_set_wins_over_the_hosts()
+    {
+        var config = Config([.. Complete, ("FLY_APP_NAME", "troop52-finance")]);
+
+        Assert.Equal(TroopInfo.From(Config(Complete)).SiteUrl, TroopInfo.From(config).SiteUrl);
+    }
+
+    [Fact]
+    public void Half_of_a_container_apps_address_is_not_enough()
+    {
+        var config = Config([.. Complete.Where(s => s.Item1 != "Troop:SiteUrl"), ("CONTAINER_APP_NAME", "troop-finances")]);
+
+        Assert.Contains("Troop:SiteUrl isn't set", TroopInfo.Problems(config));
+    }
+
     /// <summary>
     /// The app's own files don't mention a particular troop, its web address, or a person: those
     /// belong in settings. (Fails with the offending lines, so a slip is easy to find.)

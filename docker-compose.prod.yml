@@ -1,0 +1,109 @@
+# The app on a server of your own (a $6-12/month VPS, a home server, Coolify, Dokploy, ...):
+#   app        the published image (or built here with --build)
+#   postgres   the database
+#   caddy      HTTPS in front, with a free certificate it renews itself
+#
+#   cp .env.prod.example .env.prod      then fill it in
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Needs a domain name pointing at the server, and ports 80 and 443 open. Full steps:
+# infra/SETUP.md "Your own server". Updates:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# On Coolify or Dokploy, which put their own HTTPS proxy in front, leave out the caddy service and
+# give the app the domain in their settings instead.
+
+services:
+  app:
+    image: ${APP_IMAGE:-ghcr.io/sacparker09/troop-finances:latest}
+    build: .
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # ---- Your troop (infra/HOSTING.md "Your troop's settings") ----
+      Troop__Name: ${TROOP_NAME:?set TROOP_NAME in .env.prod}
+      Troop__SiteUrl: https://${SITE_DOMAIN:?set SITE_DOMAIN in .env.prod}/
+      Troop__ContactEmail: ${TROOP_CONTACT_EMAIL:?set TROOP_CONTACT_EMAIL in .env.prod}
+      Troop__TimeZone: ${TROOP_TIME_ZONE:-America/Chicago}
+      # ---- Who runs it ----
+      Auth__GlobalAdmins__0: ${GLOBAL_ADMIN_EMAIL:?set GLOBAL_ADMIN_EMAIL in .env.prod}
+      Auth__BootstrapEditors__0: ${EDITOR_EMAIL:?set EDITOR_EMAIL in .env.prod}
+      Auth__LoginCodePepper: ${LOGIN_CODE_PEPPER:?set LOGIN_CODE_PEPPER in .env.prod}
+      Authentication__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+      Authentication__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
+      AzureAd__ClientId: ${MICROSOFT_CLIENT_ID:-}
+      AzureAd__ClientSecret: ${MICROSOFT_CLIENT_SECRET:-}
+      # ---- Email ----
+      Email__Provider: Smtp
+      Email__SenderAddress: ${EMAIL_SENDER_ADDRESS:?set EMAIL_SENDER_ADDRESS in .env.prod}
+      Email__Smtp__Host: ${SMTP_HOST:?set SMTP_HOST in .env.prod}
+      Email__Smtp__Port: ${SMTP_PORT:-587}
+      Email__Smtp__Username: ${SMTP_USERNAME:-}
+      Email__Smtp__Password: ${SMTP_PASSWORD:-}
+      # ---- Database and files ----
+      Database__Provider: Postgres
+      ConnectionStrings__FinanceDb: "Host=postgres;Database=troop_finances;Username=troop;Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}"
+      Storage__Provider: FileSystem
+      Storage__FileSystem__Root: /data/files
+      # Nightly backups (2 AM, run by the app itself) go to the server's disk by default: enough to
+      # undo a mistake, but not a copy kept somewhere else. Set BACKUP_S3_* in .env.prod to send
+      # them to a bucket elsewhere instead (strongly recommended).
+      BackupStorage__Provider: ${BACKUP_PROVIDER:-FileSystem}
+      BackupStorage__FileSystem__Root: /data/backups
+      BackupStorage__S3__Bucket: ${BACKUP_S3_BUCKET:-}
+      BackupStorage__S3__ServiceUrl: ${BACKUP_S3_SERVICE_URL:-}
+      BackupStorage__S3__Region: ${BACKUP_S3_REGION:-}
+      BackupStorage__S3__AccessKey: ${BACKUP_S3_ACCESS_KEY:-}
+      BackupStorage__S3__SecretKey: ${BACKUP_S3_SECRET_KEY:-}
+    volumes:
+      - files:/data/files
+      - backups:/data/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      files-owner:
+        condition: service_completed_successfully
+
+  # New volumes belong to root; the app runs as the image's non-root user (uid 1654).
+  files-owner:
+    image: busybox:1.36
+    command: chown -R 1654:1654 /data/files /data/backups
+    volumes:
+      - files:/data/files
+      - backups:/data/backups
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: troop_finances
+      POSTGRES_USER: troop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U troop -d troop_finances"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    command: caddy reverse-proxy --from ${SITE_DOMAIN:?set SITE_DOMAIN in .env.prod} --to app:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  files:
+  backups:
+  caddy-data:
+  caddy-config:

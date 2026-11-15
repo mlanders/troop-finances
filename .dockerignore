@@ -11,3 +11,14 @@ infra/
 **/appsettings.*.local.json
 **/*.pfx
 **/*.user
+.github/
+.do/
+.devcontainer/
+.azure/
+*.md
+fly.toml
+railway.json
+render.yaml
+azure.yaml
+docker-compose*.yml
+.env*

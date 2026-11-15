@@ -1,0 +1,455 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "1504389799505306432"
+    }
+  },
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "defaultValue": "troop-finances",
+      "minLength": 3,
+      "maxLength": 20,
+      "metadata": {
+        "description": "Short name the resource names start with. Lowercase letters, digits and hyphens."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for everything."
+      }
+    },
+    "containerImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/sacparker09/troop-finances:latest",
+      "metadata": {
+        "description": "The app's container image. The default is published from this repository's main branch."
+      }
+    },
+    "troopName": {
+      "type": "string",
+      "metadata": {
+        "description": "The troop's name, shown on every page, email and PDF, e.g. \"Troop 52\"."
+      }
+    },
+    "troopContactEmail": {
+      "type": "string",
+      "metadata": {
+        "description": "Where families send questions, usually the treasurer, e.g. treasurer@troop52.org."
+      }
+    },
+    "troopTimeZone": {
+      "type": "string",
+      "defaultValue": "America/Chicago",
+      "metadata": {
+        "description": "The troop's time zone, e.g. America/New_York, America/Chicago, America/Denver, America/Phoenix, America/Los_Angeles."
+      }
+    },
+    "siteUrl": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. The site's own address once it has a domain, e.g. https://finance.troop52.org/. Empty uses the Container App's address."
+      }
+    },
+    "globalAdminEmail": {
+      "type": "string",
+      "metadata": {
+        "description": "The system admin's email: the person looking after the site."
+      }
+    },
+    "editorEmail": {
+      "type": "string",
+      "metadata": {
+        "description": "The first Editor's email (usually the treasurer). They can add everyone else."
+      }
+    },
+    "googleClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Google sign-in client id (infra/SETUP.md step 1). Leave empty to use only Microsoft sign-in."
+      }
+    },
+    "googleClientSecret": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Google sign-in client secret."
+      }
+    },
+    "microsoftClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Microsoft sign-in app (client) id (infra/DEPLOY.md step 2). Leave empty to use only Google sign-in."
+      }
+    },
+    "microsoftClientSecret": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Microsoft sign-in client secret."
+      }
+    },
+    "emailSenderAddress": {
+      "type": "string",
+      "metadata": {
+        "description": "The address emails come from, e.g. noreply@troop52.org. Its domain must be verified with the email service."
+      }
+    },
+    "smtpHost": {
+      "type": "string",
+      "metadata": {
+        "description": "The email service's SMTP host, e.g. smtp.resend.com, smtp-relay.brevo.com."
+      }
+    },
+    "smtpPort": {
+      "type": "int",
+      "defaultValue": 587,
+      "metadata": {
+        "description": "SMTP port: 587 (usual) or 465."
+      }
+    },
+    "smtpUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "SMTP username (Resend: resend)."
+      }
+    },
+    "smtpPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "SMTP password or API key."
+      }
+    },
+    "loginCodePepper": {
+      "type": "securestring",
+      "defaultValue": "[newGuid()]",
+      "minLength": 32,
+      "metadata": {
+        "description": "Leave as is: generated once. Never change it afterwards (it unlinks every guardian's authenticator app), so change settings in the portal rather than deploying this template again."
+      }
+    },
+    "databasePassword": {
+      "type": "securestring",
+      "defaultValue": "[format('Tf-{0}', newGuid())]",
+      "minLength": 12,
+      "metadata": {
+        "description": "Leave as is: the database password, generated once."
+      }
+    },
+    "backupTriggerKey": {
+      "type": "securestring",
+      "defaultValue": "[newGuid()]",
+      "minLength": 32,
+      "metadata": {
+        "description": "Leave as is: lets the nightly job start the backup."
+      }
+    }
+  },
+  "variables": {
+    "suffix": "[uniqueString(resourceGroup().id, parameters('baseName'))]",
+    "appName": "[take(format('{0}-app', parameters('baseName')), 32)]",
+    "databaseName": "troop_finances",
+    "databaseUser": "troop",
+    "settings": "[concat(createArray(createObject('name', 'ASPNETCORE_ENVIRONMENT', 'value', 'Production'), createObject('name', 'Troop__Name', 'value', parameters('troopName')), createObject('name', 'Troop__ContactEmail', 'value', parameters('troopContactEmail')), createObject('name', 'Troop__TimeZone', 'value', parameters('troopTimeZone')), createObject('name', 'Auth__GlobalAdmins__0', 'value', parameters('globalAdminEmail')), createObject('name', 'Auth__BootstrapEditors__0', 'value', parameters('editorEmail')), createObject('name', 'Auth__LoginCodePepper', 'secretRef', 'login-code-pepper'), createObject('name', 'Database__Provider', 'value', 'Postgres'), createObject('name', 'ConnectionStrings__FinanceDb', 'secretRef', 'finance-db'), createObject('name', 'ConnectionStrings__AzureStorage', 'secretRef', 'receipts-storage'), createObject('name', 'ConnectionStrings__BackupStorage', 'secretRef', 'backup-storage'), createObject('name', 'Backup__Schedule', 'value', 'External'), createObject('name', 'Backup__TriggerKey', 'secretRef', 'backup-trigger-key'), createObject('name', 'Email__Provider', 'value', 'Smtp'), createObject('name', 'Email__SenderAddress', 'value', parameters('emailSenderAddress')), createObject('name', 'Email__Smtp__Host', 'value', parameters('smtpHost')), createObject('name', 'Email__Smtp__Port', 'value', string(parameters('smtpPort'))), createObject('name', 'Email__Smtp__Username', 'value', parameters('smtpUsername')), createObject('name', 'Email__Smtp__Password', 'secretRef', 'smtp-password')), if(empty(parameters('siteUrl')), createArray(), createArray(createObject('name', 'Troop__SiteUrl', 'value', parameters('siteUrl')))), if(empty(parameters('googleClientId')), createArray(), createArray(createObject('name', 'Authentication__Google__ClientId', 'value', parameters('googleClientId')), createObject('name', 'Authentication__Google__ClientSecret', 'secretRef', 'google-client-secret'))), if(empty(parameters('microsoftClientId')), createArray(), createArray(createObject('name', 'AzureAd__ClientId', 'value', parameters('microsoftClientId')), createObject('name', 'AzureAd__ClientSecret', 'secretRef', 'microsoft-client-secret'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[format('{0}-logs', parameters('baseName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}-db-{1}', parameters('baseName'), variables('suffix'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_B1ms",
+        "tier": "Burstable"
+      },
+      "properties": {
+        "version": "16",
+        "administratorLogin": "[variables('databaseUser')]",
+        "administratorLoginPassword": "[parameters('databasePassword')]",
+        "storage": {
+          "storageSizeGB": 32,
+          "autoGrow": "Enabled"
+        },
+        "backup": {
+          "backupRetentionDays": 7,
+          "geoRedundantBackup": "Disabled"
+        },
+        "highAvailability": {
+          "mode": "Disabled"
+        },
+        "network": {
+          "publicNetworkAccess": "Enabled"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', format('{0}-db-{1}', parameters('baseName'), variables('suffix')), variables('databaseName'))]",
+      "properties": {
+        "charset": "UTF8",
+        "collation": "en_US.utf8"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', format('{0}-db-{1}', parameters('baseName'), variables('suffix')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', format('{0}-db-{1}', parameters('baseName'), variables('suffix')), 'AllowAllAzureServicesAndResourcesWithinAzureIps')]",
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', format('{0}-db-{1}', parameters('baseName'), variables('suffix')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[format('tf{0}', variables('suffix'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', format('tf{0}', variables('suffix')), 'default')]",
+      "properties": {
+        "deleteRetentionPolicy": {
+          "enabled": true,
+          "days": 14
+        },
+        "containerDeleteRetentionPolicy": {
+          "enabled": true,
+          "days": 14
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', format('tf{0}', variables('suffix')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[format('tfbak{0}', variables('suffix'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_GRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "accessTier": "Cool",
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', format('tfbak{0}', variables('suffix')), 'default')]",
+      "properties": {
+        "deleteRetentionPolicy": {
+          "enabled": true,
+          "days": 7
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', format('tfbak{0}', variables('suffix')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}-env', parameters('baseName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', parameters('baseName'))), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', parameters('baseName'))), '2023-09-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', parameters('baseName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('appName')]",
+      "location": "[parameters('location')]",
+      "tags": {
+        "azd-service-name": "web"
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('baseName')))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 8080,
+            "transport": "auto",
+            "allowInsecure": false
+          },
+          "secrets": "[concat(createArray(createObject('name', 'finance-db', 'value', format('Host={0};Database={1};Username={2};Password={3};SSL Mode=Require', reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', format('{0}-db-{1}', parameters('baseName'), variables('suffix'))), '2024-08-01').fullyQualifiedDomainName, variables('databaseName'), variables('databaseUser'), parameters('databasePassword'))), createObject('name', 'receipts-storage', 'value', format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', format('tf{0}', variables('suffix')), listKeys(resourceId('Microsoft.Storage/storageAccounts', format('tf{0}', variables('suffix'))), '2023-05-01').keys[0].value, environment().suffixes.storage)), createObject('name', 'backup-storage', 'value', format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', format('tfbak{0}', variables('suffix')), listKeys(resourceId('Microsoft.Storage/storageAccounts', format('tfbak{0}', variables('suffix'))), '2023-05-01').keys[0].value, environment().suffixes.storage)), createObject('name', 'login-code-pepper', 'value', parameters('loginCodePepper')), createObject('name', 'backup-trigger-key', 'value', parameters('backupTriggerKey')), createObject('name', 'smtp-password', 'value', parameters('smtpPassword'))), if(empty(parameters('googleClientSecret')), createArray(), createArray(createObject('name', 'google-client-secret', 'value', parameters('googleClientSecret')))), if(empty(parameters('microsoftClientSecret')), createArray(), createArray(createObject('name', 'microsoft-client-secret', 'value', parameters('microsoftClientSecret')))))]"
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "app",
+              "image": "[parameters('containerImage')]",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": "[variables('settings')]",
+              "probes": [
+                {
+                  "type": "Startup",
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 5,
+                  "failureThreshold": 30
+                },
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "periodSeconds": 30
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 0,
+            "maxReplicas": 1
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('baseName')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', format('tfbak{0}', variables('suffix')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', format('tfbak{0}', variables('suffix')), 'default')]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', format('{0}-db-{1}', parameters('baseName'), variables('suffix')))]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/firewallRules', format('{0}-db-{1}', parameters('baseName'), variables('suffix')), 'AllowAllAzureServicesAndResourcesWithinAzureIps')]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/databases', format('{0}-db-{1}', parameters('baseName'), variables('suffix')), variables('databaseName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', format('tf{0}', variables('suffix')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', format('tf{0}', variables('suffix')), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "[take(format('{0}-backup', parameters('baseName')), 32)]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('baseName')))]",
+        "configuration": {
+          "triggerType": "Schedule",
+          "scheduleTriggerConfig": {
+            "cronExpression": "15 10 * * *",
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "replicaTimeout": 1800,
+          "replicaRetryLimit": 1,
+          "secrets": [
+            {
+              "name": "backup-trigger-key",
+              "value": "[parameters('backupTriggerKey')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "start-backup",
+              "image": "docker.io/curlimages/curl:8.11.1",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --retry-delay 30 --max-time 1500 -X POST -H \"Authorization: Bearer $KEY\" \"$URL\""
+              ],
+              "env": [
+                {
+                  "name": "KEY",
+                  "secretRef": "backup-trigger-key"
+                },
+                {
+                  "name": "URL",
+                  "value": "[format('https://{0}/internal/backup', reference(resourceId('Microsoft.App/containerApps', variables('appName')), '2024-03-01').configuration.ingress.fqdn)]"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('appName'))]",
+        "[resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('baseName')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "appUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('appName')), '2024-03-01').configuration.ingress.fqdn)]"
+    },
+    "googleRedirectUri": {
+      "type": "string",
+      "value": "[format('https://{0}/signin-google', reference(resourceId('Microsoft.App/containerApps', variables('appName')), '2024-03-01').configuration.ingress.fqdn)]"
+    },
+    "microsoftRedirectUri": {
+      "type": "string",
+      "value": "[format('https://{0}/signin-oidc', reference(resourceId('Microsoft.App/containerApps', variables('appName')), '2024-03-01').configuration.ingress.fqdn)]"
+    },
+    "databaseServer": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', format('{0}-db-{1}', parameters('baseName'), variables('suffix'))), '2024-08-01').fullyQualifiedDomainName]"
+    }
+  }
+}

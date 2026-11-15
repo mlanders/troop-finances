@@ -1,31 +1,47 @@
 # Troop Finances
 
+[![Build and test](https://github.com/sacparker09/troop-finances/actions/workflows/ci.yml/badge.svg)](https://github.com/sacparker09/troop-finances/actions/workflows/ci.yml)
+
 A Blazor Server app tracking troop money: reimbursement receipts adults submit, invoices scouts
 owe (trips/camp/meals), and fundraiser proceeds credited into individual scouts' accounts.
 
 ## Set it up for your troop
 
 Any Scouts BSA troop can run its own copy, with its own database: nothing about a particular
-troop is written into the app. The quickest way is Render (about $13 a month):
+troop is written into the app. Pick a host and click:
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/sacparker09/troop-finances)
+<!-- Railway: uncomment once the template is published (infra/BUTTONS.md), with its code in place of TEMPLATE_CODE.
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TEMPLATE_CODE?utm_medium=integration&utm_source=button&utm_campaign=troop-finances)
+-->
+[![Deploy to DigitalOcean](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/sacparker09/troop-finances/tree/main)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsacparker09%2Ftroop-finances%2Fmain%2Finfra%2Fcontainer-apps%2Fazuredeploy.json)
 
-Before clicking, read [infra/SETUP.md](infra/SETUP.md): it takes about 30 minutes, mostly
-setting up Google sign-in and an email service, which no host can do for you. Other hosts and
-Azure are covered in [infra/HOSTING.md](infra/HOSTING.md) and [infra/DEPLOY.md](infra/DEPLOY.md).
+Or with a few commands: [Fly.io](infra/SETUP.md#flyio) (`fly.toml`), the
+[Azure Developer CLI](infra/SETUP.md#azure) (`azd up`), or
+[a server of your own](infra/SETUP.md#your-own-server) (`docker-compose.prod.yml`).
+
+Before clicking, read [infra/SETUP.md](infra/SETUP.md): it compares the hosts (about $2 to $24 a
+month) and takes about 30 minutes, mostly setting up Google sign-in and an email service, which
+no host can do for you. The full reference is [infra/HOSTING.md](infra/HOSTING.md), and the
+original Azure App Service deployment is [infra/DEPLOY.md](infra/DEPLOY.md).
 Free to use under the [MIT License](LICENSE).
 
-Sibling project to `bsa-meeting-signin`, reusing many of its patterns (Blazor Server, repository
-pattern, Bicep/`deploy.ps1` deployment flow) but deployed and maintained
-independently, since this app handles financial/PII data with different access needs. Unlike the
-sign-in app, its records live in **Azure SQL** (through EF Core) rather than Table Storage, so
-lists, totals and reports are database queries that stay fast as years of history build up, and
-every money operation is one all-or-nothing transaction. Receipt files are in Blob Storage.
+Just want to look around first?
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/sacparker09/troop-finances?quickstart=1)
+
+That runs it in your browser with sample data and a fake admin sign-in: nothing to install.
+
+Records live in a SQL database (Azure SQL or PostgreSQL, through EF Core), so lists, totals and
+reports are database queries that stay fast as years of history build up, and every money
+operation is one all-or-nothing transaction. Receipt files are in Blob Storage (or an S3 bucket or
+a folder, off Azure).
 
 ## Who logs in, and how
 
 - **Treasurer/admin** (`/admin`) -- signs in at `/admin/signin` with a Microsoft account (work,
-  school or personal) or a Google account, the same sign-in page as the meal-planner app.
+  school or personal) or a Google account.
   Manages everything: reviews/approves reimbursements, issues invoices, records fundraiser
   allocations, manages the scout/guardian roster. Can also submit a receipt on a guardian's
   behalf (`/admin/reimbursements/new`); it shows up in that guardian's portal.
@@ -265,10 +281,17 @@ dotnet test
   without LocalDB. To run them against PostgreSQL instead, set `TROOPFIN_TEST_POSTGRES` to a
   server's connection string without a database name, e.g.
   `Host=127.0.0.1;Username=postgres;Password=...` (`docker run -e POSTGRES_PASSWORD=... -p 5432:5432 postgres:17`
-  gives you one).
+  gives you one); for a SQL Server other than LocalDB, set `TROOPFIN_TEST_SQLSERVER` the same way
+  (`Server=127.0.0.1;User Id=sa;Password=...;TrustServerCertificate=True`).
 - **Storage tests** (`BlobStoreContractTests`) hold every file store to the same behaviour: a
   temporary folder, an S3 bucket (an in-memory stand-in for the AWS client), and Azure blob
   storage when Azurite is running (skipped otherwise).
+
+On GitHub, [.github/workflows/ci.yml](.github/workflows/ci.yml) builds and runs every test on
+each push and pull request, once against PostgreSQL and once against SQL Server, with Azurite:
+nothing is skipped there (`TROOPFIN_TEST_REQUIRE_DATABASE` turns a missing database into a
+failure). Each run's **Summary** lists every test; the badge at the top shows the latest result
+on `main`.
 
 Note when writing tests that money inputs fill from the cents like a cash register: typing `50`
 means $0.50, so type `50.00`.
@@ -283,35 +306,18 @@ Entra app registration, email domain DNS verification, and secret wiring.
 .\infra\deploy.ps1
 ```
 from the repo root (PowerShell). See the script's header comment for why it doesn't just use
-`Compress-Archive` (a Windows-PowerShell-5.1-specific zip bug that broke deploys on the sibling
-app until this was worked out).
+`Compress-Archive` (a Windows-PowerShell-5.1-specific zip bug that breaks deploys to Linux App
+Service).
 
 **Backups**: nightly to a separate storage account, newest 14 kept; setup and restore steps are
 in [infra/DEPLOY.md](infra/DEPLOY.md) step 7.
 
 ## Hosting elsewhere
 
-The app also runs as a container (the `Dockerfile` at the root) on hosts other than Azure: Fly.io,
-Render, Railway, a VPS, and so on. There it uses SQL Server or PostgreSQL, an S3-compatible
+The app also runs as a container (the `Dockerfile` at the root, also published as
+`ghcr.io/sacparker09/troop-finances`) on hosts other than App Service: Render, Railway,
+DigitalOcean, Azure Container Apps, Fly.io, a VPS, and so on ([infra/SETUP.md](infra/SETUP.md)). There it uses SQL Server or PostgreSQL, an S3-compatible
 bucket (or a folder) for receipts and backups, and any SMTP service for email, each picked by a
 setting (`Database:Provider`, `Storage:Provider`, `BackupStorage:Provider`, `Email:Provider`). It can also be left to sleep
 when idle, with the nightly backup started from outside. `docker compose up --build` runs the
 whole thing locally. See [infra/HOSTING.md](infra/HOSTING.md).
-
-## Using it for another troop
-
-Nothing about a particular troop is written into the app: the troop's name, web address, contact, time
-zone and admins are all settings (`Troop:*`, `Email:SenderAddress`, `Auth:GlobalAdmins`; see
-[infra/HOSTING.md "Your troop's settings"](infra/HOSTING.md#your-troops-settings)). Locally it
-runs as a sample "Troop 100" (`appsettings.Development.json`); override with user-secrets to see
-your own. A test (`No_troop_or_person_is_written_into_the_app`) keeps it that way. Each troop runs
-its own copy, with its own database and storage. The code is free to use under the
-[MIT License](LICENSE).
-
-## Known limitations / possible next steps
-
-- Automated tests cover the Invoices, Reimbursements and Reports pages, family payments, the
-  database layer, the migration, backups and the dev sign-in (see "Tests" above); other admin
-  pages are still verified by hand.
-- The troop's overall/unallocated fundraiser balance is out of scope by design -- this app only
-  tracks money once it's credited to a specific scout's account.

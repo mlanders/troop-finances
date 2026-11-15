@@ -4,8 +4,7 @@ The Bicep template (`main.bicep`) provisions the Storage Account (Table + Blob),
 and the Azure Communication Services Email resources. It does **not** cover:
 
 - The Microsoft app registration and Google OAuth client for the treasurer/admin sign-in --
-  neither is an Azure resource, so Bicep/ARM can't create them (same reason as the sibling
-  meeting sign-in app).
+  neither is an Azure resource, so Bicep/ARM can't create them.
 - DNS verification for the `noreply@<your-domain>` sender domain -- Bicep creates the `Domain`
   resource, but can't touch DNS records outside Azure.
 - The `Auth:LoginCodePepper` secret (the HMAC key used to hash login codes before storing them)
@@ -45,14 +44,14 @@ Note the `webAppUrl` and `signInRedirectUri` outputs -- you'll need them next.
 ## 2. Register the sign-in apps (admin/treasurer login)
 
 Treasurers sign in at `/admin/signin` with a Microsoft account (work, school or personal) or a
-Google account, like the meal-planner app. Each provider's button only appears once its client id
+Google account. Each provider's button only appears once its client id
 is set, so either can be left out. Signing in grants nothing by itself: access is given in the app
 (see "Who gets access" below).
 
 ### Microsoft
 
-Recommend a **separate** app registration from the meeting sign-in app's -- different redirect
-URIs, different blast radius for an app that handles financial data.
+Use an app registration of its own, not one shared with another app -- its own redirect URIs, and
+a smaller blast radius for an app that handles financial data.
 
 ```bash
 appId=$(az ad app create \
@@ -208,7 +207,7 @@ letter shows highlighted `[Chartered organization]` / `[EIN]` placeholders to ty
 az webapp config appsettings set --resource-group <resource-group> --name <web-app> --settings "Troop__CharteredOrganization=<chartered organization name>" "Troop__Ein=<12-3456789>"
 ```
 
-**Security note**: unlike some early history in the sibling sign-in app, keep all of the above out
+**Security note**: keep all of the above out
 of anything committed to source control -- set them only via `az webapp config appsettings set`
 (as above) or `dotnet user-secrets` locally, never in `appsettings.json`/`main.parameters.json`.
 

@@ -1428,7 +1428,7 @@ p.invoice-amount-due {
     margin-top: 0;
 }
 
-/* Treasurer sign-in (AdminSignIn.razor), matching the meal-planner app's: logo, title, then one
+/* Treasurer sign-in (AdminSignIn.razor): logo, title, then one
    provider-styled button per sign-in option -- white with the provider's own mark, the look
    Microsoft's and Google's branding guidelines describe. */
 .signin {

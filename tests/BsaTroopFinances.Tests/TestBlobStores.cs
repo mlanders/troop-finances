@@ -33,7 +33,14 @@ public static class TestBlobStores
     /// <summary>Containers named with a random prefix, so nothing else in Azurite is touched.</summary>
     public static TestStore AzuriteStore()
     {
-        Skip.IfNot(AzuriteRunning(), "Azurite isn't running on 127.0.0.1:10000.");
+        if (!AzuriteRunning())
+        {
+            // In CI (TROOPFIN_TEST_REQUIRE_DATABASE) Azurite is started for the tests: a skip
+            // would hide a broken setup.
+            Assert.True(string.IsNullOrEmpty(Environment.GetEnvironmentVariable(SqlTestDatabase.RequireVariable)),
+                "Azurite isn't running on 127.0.0.1:10000.");
+            Skip.If(true, "Azurite isn't running on 127.0.0.1:10000.");
+        }
         var client = new BlobServiceClient("UseDevelopmentStorage=true");
         var prefix = $"t{Guid.NewGuid():N}"[..20] + "-";
         return new TestStore(new AzureBlobStore(client, prefix), async () =>

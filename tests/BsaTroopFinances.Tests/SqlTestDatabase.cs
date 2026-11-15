@@ -11,16 +11,22 @@ namespace BsaTroopFinances.Tests;
 /// A real, throwaway database per test class: created with the app's own migrations, dropped
 /// afterwards. SQL Server LocalDB by default; set TROOPFIN_TEST_POSTGRES to a PostgreSQL server's
 /// connection string (no database name, e.g. "Host=127.0.0.1;Username=postgres;Password=...") to
-/// run the same tests against PostgreSQL instead. Tests using it skip (rather than fail) when the
-/// server isn't reachable, so `dotnet test` still works everywhere.
+/// run the same tests against PostgreSQL instead, or TROOPFIN_TEST_SQLSERVER to another SQL
+/// Server's (e.g. "Server=127.0.0.1;User Id=sa;Password=...;TrustServerCertificate=True", as in
+/// CI). Tests using it skip (rather than fail) when the server isn't reachable, so `dotnet test`
+/// still works everywhere -- except where TROOPFIN_TEST_REQUIRE_DATABASE is set (CI), where a skip
+/// would hide a broken setup, so they fail instead.
 /// </summary>
 public sealed class SqlTestDatabase : IAsyncLifetime
 {
     public const string PostgresVariable = "TROOPFIN_TEST_POSTGRES";
-    private const string LocalDb = @"(localdb)\MSSQLLocalDB";
+    public const string SqlServerVariable = "TROOPFIN_TEST_SQLSERVER";
+    public const string RequireVariable = "TROOPFIN_TEST_REQUIRE_DATABASE";
+    private const string LocalDb = @"Server=(localdb)\MSSQLLocalDB;Trusted_Connection=True;TrustServerCertificate=True";
 
     private readonly string _name = $"troopfin_tests_{Guid.NewGuid():N}";
     private readonly string? _postgresServer = Environment.GetEnvironmentVariable(PostgresVariable) is { Length: > 0 } server ? server : null;
+    private readonly string _sqlServer = Environment.GetEnvironmentVariable(SqlServerVariable) is { Length: > 0 } server ? server : LocalDb;
     private DbContextOptions<FinanceDbContext>? _options;
 
     public bool Available { get; private set; }
@@ -31,7 +37,7 @@ public sealed class SqlTestDatabase : IAsyncLifetime
 
     public DatabaseConnection Connection => Provider == DatabaseProvider.Postgres
         ? new(Provider, new NpgsqlConnectionStringBuilder(_postgresServer) { Database = _name }.ConnectionString)
-        : new(Provider, $"Server={LocalDb};Database={_name};Trusted_Connection=True;TrustServerCertificate=True");
+        : new(Provider, new SqlConnectionStringBuilder(_sqlServer) { InitialCatalog = _name }.ConnectionString);
 
     public FinanceDb Db { get; private set; } = null!;
 
@@ -46,7 +52,7 @@ public sealed class SqlTestDatabase : IAsyncLifetime
             }
             else
             {
-                await using var master = new SqlConnection($"Server={LocalDb};Database=master;Trusted_Connection=True;TrustServerCertificate=True;Connect Timeout=30");
+                await using var master = new SqlConnection(new SqlConnectionStringBuilder(_sqlServer) { InitialCatalog = "master", ConnectTimeout = 30 }.ConnectionString);
                 await master.OpenAsync();
             }
 
@@ -55,11 +61,13 @@ public sealed class SqlTestDatabase : IAsyncLifetime
             Db = new FinanceDb(new Factory(this));
             Available = true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(RequireVariable)))
         {
             UnavailableReason = Provider == DatabaseProvider.Postgres
                 ? $"PostgreSQL ({PostgresVariable}) isn't reachable: {ex.Message}"
-                : $"SQL Server LocalDB isn't available: {ex.Message}";
+                : _sqlServer == LocalDb
+                    ? $"SQL Server LocalDB isn't available: {ex.Message}"
+                    : $"SQL Server ({SqlServerVariable}) isn't reachable: {ex.Message}";
         }
     }
 

@@ -1,0 +1,39 @@
+// "Open in GitHub Codespaces" (README.md): try the app in the browser, nothing to install. Starts
+// the local trial setup (docker-compose.yml with PostgreSQL: the fake admin sign-in, sample data,
+// and Mailpit catching every email), and has the .NET SDK for working on the code.
+//
+// For trying it out only, like docker compose locally: never for a troop's real records.
+{
+  "name": "Troop Finances",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/dotnet:2": {
+      "version": "10.0"
+    }
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb"
+  },
+  "postStartCommand": "docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build",
+  "forwardPorts": [8080, 8025],
+  "portsAttributes": {
+    "8080": {
+      "label": "Troop Finances",
+      "onAutoForward": "openBrowserOnce"
+    },
+    "8025": {
+      "label": "Mailpit (sign-in codes)",
+      "onAutoForward": "silent"
+    }
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["infra/SETUP.md"]
+    },
+    "vscode": {
+      "extensions": ["ms-dotnettools.csdevkit"]
+    }
+  }
+}
