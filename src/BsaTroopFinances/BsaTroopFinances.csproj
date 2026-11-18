@@ -13,6 +13,13 @@
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
 
+  <!-- The version shown in the footer (Services/AppVersion.cs). The GitHub build passes it in
+       (-p:AppVersion=2026.11.42, through the Dockerfile); other builds leave it out. The commit
+       comes from SourceRevisionId, which the SDK adds to the informational version. -->
+  <ItemGroup Condition="'$(AppVersion)' != ''">
+    <AssemblyMetadata Include="AppVersion" Value="$(AppVersion)" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.1.0" />
     <PackageReference Include="Azure.Communication.Email" Version="1.1.0" />

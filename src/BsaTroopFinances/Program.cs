@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Identity.Web;
 using Microsoft.EntityFrameworkCore;
@@ -252,6 +253,17 @@ builder.Services.AddSingleton<ITestDataLoader, TestDataLoader>();
 // Email:Provider picks how email goes out; left empty it's Azure Communication Services in
 // Production and the console (no ACS resource needed) in Development. See Services/EmailProviders.
 EmailProviders.Add(builder.Services, builder.Configuration, builder.Environment);
+
+// GitHub Codespaces (and similar development proxies) pass requests on as "localhost:8080" and put
+// the address the browser used in X-Forwarded-Host; without reading it, sign-in redirects and page
+// addresses point at localhost. Trusted only for local trials (Development and
+// ForwardedHeaders:TrustHost, set in docker-compose.yml): a real host sends the right Host itself,
+// and trusting the header there would let any request claim any address.
+if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("ForwardedHeaders:TrustHost"))
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        options.ForwardedHeaders |= ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto);
+}
 
 var app = builder.Build();
 var troopInfo = app.Services.GetRequiredService<TroopInfo>();

@@ -21,6 +21,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       DevAuth__Enabled: "true"
       DevAuth__SeedSampleData: "true"   # a small sample troop, loaded into an empty database
+      # Behind GitHub Codespaces' proxy: use the address the browser used (X-Forwarded-Host), not
+      # localhost:8080, for redirects. Development only; see Program.cs.
+      ForwardedHeaders__TrustHost: "true"
       ConnectionStrings__FinanceDb: "Server=sqlserver;Database=BsaTroopFinances;User Id=sa;Password=${SQL_SA_PASSWORD:-Local-Only-Pa55word!};TrustServerCertificate=True"
       Storage__Provider: FileSystem
       Storage__FileSystem__Root: /data/files

@@ -17,10 +17,16 @@ COPY src/BsaTroopFinances/BsaTroopFinances.csproj src/BsaTroopFinances/
 RUN dotnet restore src/BsaTroopFinances/BsaTroopFinances.csproj -r linux-x64 -p:PublishReadyToRun=true
 
 COPY src/BsaTroopFinances/ src/BsaTroopFinances/
+# The version and commit shown in the footer (Services/AppVersion.cs). The GitHub build passes
+# them in (--build-arg); a host that builds this file itself leaves them empty.
+ARG APP_VERSION=
+ARG SOURCE_COMMIT=
+
 # ReadyToRun compiles ahead of time, so a host that stops the app when idle starts it again
 # in a couple of seconds rather than five or more.
 RUN dotnet publish src/BsaTroopFinances/BsaTroopFinances.csproj -c Release -r linux-x64 --self-contained false \
-        --no-restore -p:PublishReadyToRun=true -o /app
+        --no-restore -p:PublishReadyToRun=true \
+        -p:AppVersion="$APP_VERSION" -p:SourceRevisionId="$SOURCE_COMMIT" -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 

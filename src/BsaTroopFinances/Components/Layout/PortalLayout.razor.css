@@ -191,9 +191,14 @@
         display: inline;
     }
 
-    /* Room for the tab bar (56px) plus the home indicator, so the last card isn't hidden. */
     .portal-main {
-        padding: 1rem max(0.85rem, env(safe-area-inset-right)) calc(56px + 1.5rem + env(safe-area-inset-bottom)) max(0.85rem, env(safe-area-inset-left));
+        padding: 1rem max(0.85rem, env(safe-area-inset-right)) 1.5rem max(0.85rem, env(safe-area-inset-left));
+    }
+
+    /* Room for the tab bar (56px) plus the home indicator below the footer, the last thing on
+       the page, so neither it nor the last card is hidden. */
+    .portal-shell ::deep .site-footer {
+        padding-bottom: calc(56px + 1.25rem + env(safe-area-inset-bottom));
     }
 
     /* The error bar sits above the tab bar rather than under it. */
