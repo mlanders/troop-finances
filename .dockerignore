@@ -8,6 +8,7 @@
 azurite-data/
 tests/
 infra/
+docs/
 **/appsettings.*.local.json
 **/*.pfx
 **/*.user

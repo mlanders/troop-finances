@@ -7,6 +7,10 @@ Money tracking for a Scouts BSA troop: reimbursement receipts that adults submit
 owe (trips, camp, meals), and fundraiser proceeds credited to individual scouts' accounts. Parents
 see their scout's balance and submit receipts from their phone; the treasurer manages the rest.
 
+![The treasurer's dashboard: pending reimbursements, outstanding invoices, active fundraisers and the troop's bank balance](docs/images/dashboard.jpg)
+
+More screens, from reimbursements to bank reconciliation: [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+
 ## Set it up for your troop
 
 Any Scouts BSA troop can run its own copy, with its own database and nothing shared with
@@ -195,6 +199,7 @@ means $0.50, so type `50.00`.
 - [infra/DEPLOY.md](infra/DEPLOY.md): the Azure App Service deployment (`infra/main.bicep`, and
   `infra/deploy.ps1` for code changes), backups and restoring.
 - [infra/BUTTONS.md](infra/BUTTONS.md): maintaining the deploy buttons and the published image.
+- [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md): a tour of the admin pages.
 - [docs/ACCESS.md](docs/ACCESS.md): who can sign in and what they can do.
 - [docs/TEST-DATA.md](docs/TEST-DATA.md): generating test data.
 
