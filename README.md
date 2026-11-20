@@ -11,6 +11,10 @@ It fits comfortably in Cloudflare's free tier for a troop-sized site.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mlanders/troop-finances)
 
+To install the TypeScript version straight from its branch before it is merged to `main`, use
+[this button's branch link](https://deploy.workers.cloudflare.com/?url=https://github.com/mlanders/troop-finances/tree/claude/ecstatic-gates-mx62od)
+(remove this line once merged).
+
 Cloudflare copies the repo to your GitHub, creates the D1 database and R2 bucket, runs the migrations
 and deploys. When it asks for settings:
 
