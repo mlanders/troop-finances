@@ -46,6 +46,10 @@ public class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbCo
     public DbSet<EmailSettingsEntity> EmailSettings => Set<EmailSettingsEntity>();
     public DbSet<AdminUserEntity> AdminUsers => Set<AdminUserEntity>();
     public DbSet<AdminSignInEntity> AdminSignIns => Set<AdminSignInEntity>();
+    public DbSet<SignInPersonEntity> SignInPeople => Set<SignInPersonEntity>();
+    public DbSet<TripImportEntity> TripImports => Set<TripImportEntity>();
+    public DbSet<TripImportLineEntity> TripImportLines => Set<TripImportLineEntity>();
+    public DbSet<TripPaymentEntity> TripPayments => Set<TripPaymentEntity>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -262,6 +266,52 @@ public class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbCo
             e.HasIndex(s => s.UserKey);
             e.HasIndex(s => s.VerifiedEmail);
             e.Ignore(s => s.SignInKey);
+        });
+
+        // The meeting sign-in app's roster, trips and payments (see Services/SignInAppService).
+        // Unique on the linked scout and guardian, so one finance person can't stand for two
+        // sign-in people (SQL Server leaves unlinked NULLs out of the index; PostgreSQL never
+        // counts NULLs as duplicates).
+        model.Entity<SignInPersonEntity>(e =>
+        {
+            Keys(e);
+            e.ToTable(TableNames.SignInPeople);
+            e.HasIndex(p => p.LinkedScoutId).IsUnique();
+            e.HasIndex(p => p.LinkedGuardianId).IsUnique();
+            e.Ignore(p => p.PersonId);
+            e.Ignore(p => p.IsAdult);
+            e.Ignore(p => p.LinkedId);
+            e.Ignore(p => p.IsLinked);
+        });
+
+        model.Entity<TripImportEntity>(e =>
+        {
+            Keys(e);
+            e.ToTable(TableNames.TripImports);
+            e.HasIndex(t => t.StartDate);
+            e.Ignore(t => t.SignUpId);
+            e.Ignore(t => t.InvoiceDescription);
+        });
+
+        model.Entity<TripImportLineEntity>(e =>
+        {
+            Keys(e);
+            e.ToTable(TableNames.TripImportLines);
+            e.HasIndex(l => l.SignInPersonId);
+            e.HasIndex(l => l.InvoiceId);
+            e.Ignore(l => l.SignUpId);
+            e.Ignore(l => l.EntryId);
+            e.Ignore(l => l.IsAdult);
+            e.Ignore(l => l.HasInvoice);
+        });
+
+        model.Entity<TripPaymentEntity>(e =>
+        {
+            Keys(e);
+            e.ToTable(TableNames.TripPayments);
+            e.HasIndex(p => p.InvoiceId);
+            e.Ignore(p => p.SignUpId);
+            e.Ignore(p => p.PaymentId);
         });
 
         // Each key is an XML document of a kilobyte or more, past the 400-character default above.

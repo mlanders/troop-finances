@@ -16,6 +16,10 @@ public static class FinanceAuditEntityType
     /// "reimbursements"), so the entry links back to that page.</summary>
     public const string ListView = "ListView";
 
+    /// <summary>A sign-in app person linked to a scout or guardian (Families > Sign-in app links);
+    /// the entity id is the sign-in app's PersonId.</summary>
+    public const string SignInLink = "SignInLink";
+
     /// <summary>The admin page showing the record an audit entry is about. Scout/Guardian route to
     /// their list pages rather than a detail page, since the only audited action for either today
     /// is deletion -- there's no surviving detail page to link to afterward.</summary>
@@ -31,6 +35,7 @@ public static class FinanceAuditEntityType
         TroopAccount => $"/admin/bank/accounts/{entityId}",
         Deposit => $"/admin/bank/deposits/{entityId}",
         ListView => $"/admin/{entityId}",
+        SignInLink => "/admin/families/signin-links",
         _ => "/admin",
     };
 
@@ -47,6 +52,7 @@ public static class FinanceAuditEntityType
         TroopAccount => ("fa-building-columns", "stat-card-navy"),
         Deposit => ("fa-money-bill-transfer", "stat-card-green"),
         ListView => ("fa-filter", "stat-card-navy"),
+        SignInLink => ("fa-link", "stat-card-navy"),
         _ => ("fa-circle-info", "stat-card-gold"),
     };
 }

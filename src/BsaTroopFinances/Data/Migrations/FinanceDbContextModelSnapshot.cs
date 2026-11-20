@@ -17,7 +17,7 @@ namespace BsaTroopFinances.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.13")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -1236,6 +1236,248 @@ namespace BsaTroopFinances.Data.Migrations
                     b.HasIndex("SourceTypeValue", "SourceId");
 
                     b.ToTable("ScoutLedger", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.SignInPersonEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<bool>("IsActiveInSignIn")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("LastSyncedUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LinkedBy")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("LinkedGuardianId")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("LinkedScoutId")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTimeOffset?>("LinkedUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("NotBilled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("PersonType")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("LinkedGuardianId")
+                        .IsUnique()
+                        .HasFilter("[LinkedGuardianId] IS NOT NULL");
+
+                    b.HasIndex("LinkedScoutId")
+                        .IsUnique()
+                        .HasFilter("[LinkedScoutId] IS NOT NULL");
+
+                    b.ToTable("SignInPeople", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.TripImportEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<DateTimeOffset>("DueDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("EndDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastAppliedBy")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTimeOffset?>("LastAppliedUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("LastReceivedUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastSentBy")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTimeOffset>("StartDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("WhenText")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("StartDate");
+
+                    b.ToTable("TripImports", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.TripImportLineEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("CostText")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("InvoiceId")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("InvoiceOwnerId")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<decimal>("InvoicedAmount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<bool>("IsRemoved")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("LastReceivedUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ManualMatchId")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("PersonType")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("SignInPersonId")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("SignInPersonId");
+
+                    b.ToTable("TripImportLines", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.TripPaymentEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("EntryId")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("InvoiceId")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTimeOffset>("ReceivedUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.ToTable("TripPayments", (string)null);
                 });
 
             modelBuilder.Entity("BsaTroopFinances.Data.Entities.TroopAccountEntity", b =>
