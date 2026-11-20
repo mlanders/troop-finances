@@ -100,8 +100,17 @@ public class SignInAppServiceTests
         };
     }
 
+    // A fixed "now", a couple of weeks before the trips below: the dashboard count leaves out trips
+    // that ended more than a month ago, so with the real clock these tests would start failing.
+    private FixedClock _clock = new(new DateTimeOffset(2026, 11, 19, 18, 0, 0, TimeSpan.Zero));
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     private SignInAppService Service() =>
-        new(_repository, _scouts, _guardians, _invoices, _accounts, _audit, new PassThroughUnitOfWork(), TimeProvider.System);
+        new(_repository, _scouts, _guardians, _invoices, _accounts, _audit, new PassThroughUnitOfWork(), _clock);
 
     private async Task<SignInAppService> WithRosterAsync()
     {
@@ -280,6 +289,111 @@ public class SignInAppServiceTests
         Assert.Equal(1, await service.CountTripsNeedingReviewAsync());
     }
 
+    [Fact]
+    public async Task A_trip_over_for_more_than_a_month_drops_off_the_dashboard()
+    {
+        var service = await WithRosterAsync();
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 40)));
+
+        _clock = new(new DateTimeOffset(2027, 1, 10, 18, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(0, await Service().CountTripsNeedingReviewAsync());
+    }
+
+    [Fact]
+    public async Task Applying_a_reissue_voids_the_old_invoice_and_issues_one_at_the_new_cost()
+    {
+        var service = await WithRosterAsync();
+        await service.LinkAsync("p-sam", "s-sam", notBilled: false, "Treasurer");
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 40)));
+        await service.ApplyAsync("t1", "Treasurer");
+
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 45)));
+        Assert.Equal(1, await service.ApplyAsync("t1", "Treasurer"));
+
+        await _accounts.Received(1).VoidInvoiceAsync("s-sam", "inv1", Arg.Is<string>(r => r.Contains("changed")), "Treasurer");
+        await _accounts.Received(1).IssueInvoiceAsync("s-sam", 45, 0, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), "Treasurer");
+        var line = _repository.Lines[("t1", "e1")];
+        Assert.Equal(("inv2", 45m), (line.InvoiceId, line.InvoicedAmount));
+        Assert.Equal(TripLineAction.UpToDate, Assert.Single((await service.GetReviewAsync("t1"))!.Lines).Action);
+    }
+
+    [Fact]
+    public async Task Applying_a_drop_out_voids_the_invoice_and_issues_nothing()
+    {
+        var service = await WithRosterAsync();
+        await service.LinkAsync("p-sam", "s-sam", notBilled: false, "Treasurer");
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 40)));
+        await service.ApplyAsync("t1", "Treasurer");
+
+        await service.ReceiveTripAsync("t1", Trip());
+        Assert.Equal(1, await service.ApplyAsync("t1", "Treasurer"));
+
+        await _accounts.Received(1).VoidInvoiceAsync("s-sam", "inv1", Arg.Is<string>(r => r.Contains("Dropped out")), "Treasurer");
+        await _accounts.Received(1).IssueInvoiceAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<decimal>(), Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<string>());
+        Assert.Null(_repository.Lines[("t1", "e1")].InvoiceId);
+    }
+
+    [Fact]
+    public async Task People_not_billed_and_free_places_are_never_invoiced()
+    {
+        var service = await WithRosterAsync();
+        await service.LinkAsync("p-jo", null, notBilled: true, "Treasurer");
+        await service.LinkAsync("p-sam", "s-sam", notBilled: false, "Treasurer");
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Jo Park", "p-jo", 40), Line("e2", "Sam OBrien", "p-sam", 0)));
+
+        var actions = (await service.GetReviewAsync("t1"))!.Lines.ToDictionary(l => l.Line.EntryId, l => l.Action);
+        Assert.Equal((TripLineAction.NotBilled, TripLineAction.NoCharge), (actions["e1"], actions["e2"]));
+        Assert.Equal(0, await service.ApplyAsync("t1", "Treasurer"));
+        await _accounts.DidNotReceiveWithAnyArgs().IssueInvoiceAsync(default!, default, default, default, default!, default!);
+    }
+
+    [Fact]
+    public async Task Applying_a_trip_that_was_never_sent_is_refused() =>
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().ApplyAsync("nope", "Treasurer"));
+
+    // ---- Status, for the sign-in app
+
+    [Fact]
+    public async Task The_status_shows_each_persons_invoice_and_whats_been_paid()
+    {
+        var service = await WithRosterAsync();
+        await service.LinkAsync("p-sam", "s-sam", notBilled: false, "Treasurer");
+        await service.LinkAsync("p-jo", null, notBilled: true, "Treasurer");
+        await service.ReceiveTripAsync("t1", Trip(
+            Line("e1", "Sam OBrien", "p-sam", 40), Line("e2", "Jo Park", "p-jo", 40), Line("e3", "Alex Kim", "p-alex", 40)));
+        await service.ApplyAsync("t1", "Treasurer");
+        _issued[_repository.Lines[("t1", "e1")].InvoiceId!].AmountDueFromFamily = 15;
+
+        var status = (await service.GetStatusAsync("t1")).ToDictionary(s => s.EntryId);
+
+        Assert.Equal(new TripLineStatusDto("e1", true, TripLineStatus.Outstanding, 40, 15, 25), status["e1"]);
+        Assert.Equal(new TripLineStatusDto("e2", true, TripLineStatus.NotBilled, 40, 40, 0), status["e2"]);
+        Assert.Equal(new TripLineStatusDto("e3", false, TripLineStatus.NotInvoiced, 40, 40, 0), status["e3"]);
+    }
+
+    [Fact]
+    public async Task A_paid_invoice_shows_as_paid_and_people_who_dropped_out_arent_listed()
+    {
+        var service = await WithRosterAsync();
+        await service.LinkAsync("p-sam", "s-sam", notBilled: false, "Treasurer");
+        await service.LinkAsync("p-jo", "s-jo", notBilled: false, "Treasurer");
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 40), Line("e2", "Jo Park", "p-jo", 40)));
+        await service.ApplyAsync("t1", "Treasurer");
+        var samsInvoice = _issued[_repository.Lines[("t1", "e1")].InvoiceId!];
+        samsInvoice.AmountDueFromFamily = 0;
+        samsInvoice.StatusValue = InvoiceStatus.Paid;
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 40)));
+
+        var status = Assert.Single(await service.GetStatusAsync("t1"));
+
+        Assert.Equal(("e1", TripLineStatus.Paid, 40m), (status.EntryId, status.Status, status.Paid));
+    }
+
+    [Fact]
+    public async Task The_status_of_a_trip_that_was_never_sent_is_empty() =>
+        Assert.Empty(await Service().GetStatusAsync("nope"));
+
     // ---- Payments
 
     [Fact]
@@ -306,6 +420,77 @@ public class SignInAppServiceTests
         Assert.Equal(TripPaymentOutcome.AlreadyRecorded, (await service.RecordPaymentAsync("t1", payment)).Outcome);
 
         await _accounts.Received(1).RecordInvoicePaymentAsync("s-sam", "inv1", 20, InvoicePaymentMethod.Check, "1234", "Pat Lee (trip sign-up)");
+    }
+
+    private async Task<SignInAppService> InvoicedTripAsync()
+    {
+        var service = await WithRosterAsync();
+        await service.LinkAsync("p-sam", "s-sam", notBilled: false, "Treasurer");
+        await service.ReceiveTripAsync("t1", Trip(Line("e1", "Sam OBrien", "p-sam", 40)));
+        await service.ApplyAsync("t1", "Treasurer");
+        return service;
+    }
+
+    [Theory]
+    [InlineData("", "e1", InvoicePaymentMethod.Cash)]
+    [InlineData("pay1", " ", InvoicePaymentMethod.Cash)]
+    [InlineData("pay1", "e1", InvoicePaymentMethod.ScoutFunds)]
+    [InlineData("pay1", "e1", "Bitcoin")]
+    public async Task A_payment_without_its_ids_or_by_a_method_the_sign_in_app_cant_take_is_rejected(string paymentId, string entryId, string method)
+    {
+        var service = await InvoicedTripAsync();
+
+        var result = await service.RecordPaymentAsync("t1", new TripPaymentUpload(paymentId, entryId, 20, method, null, "Pat Lee"));
+
+        Assert.Equal(TripPaymentOutcome.Rejected, result.Outcome);
+        await _accounts.DidNotReceiveWithAnyArgs().RecordInvoicePaymentAsync(default!, default!, default, default!, default, default!);
+        Assert.Empty(_repository.Payments);
+    }
+
+    [Fact]
+    public async Task A_payment_for_someone_not_on_the_trip_is_not_found()
+    {
+        var service = await InvoicedTripAsync();
+
+        var result = await service.RecordPaymentAsync("t1", new TripPaymentUpload("pay1", "e9", 20, InvoicePaymentMethod.Cash, null, "Pat Lee"));
+
+        Assert.Equal(TripPaymentOutcome.NotFound, result.Outcome);
+    }
+
+    [Fact]
+    public async Task A_payment_against_a_voided_invoice_is_turned_back()
+    {
+        var service = await InvoicedTripAsync();
+        _issued["inv1"].StatusValue = InvoiceStatus.Voided;
+
+        var result = await service.RecordPaymentAsync("t1", new TripPaymentUpload("pay1", "e1", 20, InvoicePaymentMethod.Cash, null, "Pat Lee"));
+
+        Assert.Equal(TripPaymentOutcome.NotInvoiced, result.Outcome);
+    }
+
+    [Fact]
+    public async Task A_payment_the_invoice_refuses_comes_back_rejected_with_the_reason_and_isnt_kept()
+    {
+        var service = await InvoicedTripAsync();
+        _accounts.RecordInvoicePaymentAsync(default!, default!, default, default!, default, default!)
+            .ReturnsForAnyArgs(Task.FromException(new InvalidOperationException("Payment must not exceed the outstanding invoice amount.")));
+
+        var result = await service.RecordPaymentAsync("t1", new TripPaymentUpload("pay1", "e1", 500, InvoicePaymentMethod.Cash, null, "Pat Lee"));
+
+        Assert.Equal((TripPaymentOutcome.Rejected, "Payment must not exceed the outstanding invoice amount."), (result.Outcome, result.Message));
+        Assert.Empty(_repository.Payments);
+    }
+
+    [Fact]
+    public async Task A_payment_is_rounded_to_cents_and_kept_with_its_invoice()
+    {
+        var service = await InvoicedTripAsync();
+
+        await service.RecordPaymentAsync("t1", new TripPaymentUpload("pay1", "e1", 20.005m, InvoicePaymentMethod.Venmo, "@sam-dad", "Pat Lee"));
+
+        await _accounts.Received(1).RecordInvoicePaymentAsync("s-sam", "inv1", 20.00m, InvoicePaymentMethod.Venmo, "@sam-dad", "Pat Lee");
+        var kept = Assert.Single(_repository.Payments.Values);
+        Assert.Equal(("e1", "inv1", 20.00m, InvoicePaymentMethod.Venmo), (kept.EntryId, kept.InvoiceId, kept.Amount, kept.Method));
     }
 
     [Fact]
