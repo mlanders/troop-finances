@@ -5,9 +5,11 @@ import { publicRoutes } from "./routes/public";
 import { portalRoutes } from "./routes/portal";
 import { peopleRoutes } from "./routes/admin-people";
 import { moneyRoutes } from "./routes/admin-money";
+import { ensureSchema } from "./lib/schema";
 
 const app = new Hono<AppEnv>();
 
+app.use("*", async (c, next) => { await ensureSchema(c.env); await next(); });
 app.use("*", sameOrigin);
 app.use("*", loadUser);
 app.use("*", async (c, next) => {

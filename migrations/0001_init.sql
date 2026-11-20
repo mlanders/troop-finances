@@ -1,13 +1,13 @@
 -- All money is stored as integer cents.
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
-CREATE TABLE admins (
+CREATE TABLE IF NOT EXISTS admins (
   email TEXT PRIMARY KEY,
   name TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE guardians (
+CREATE TABLE IF NOT EXISTS guardians (
   id TEXT PRIMARY KEY,
   full_name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
@@ -15,7 +15,7 @@ CREATE TABLE guardians (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE scouts (
+CREATE TABLE IF NOT EXISTS scouts (
   id TEXT PRIMARY KEY,
   full_name TEXT NOT NULL,
   rank TEXT,
@@ -24,14 +24,14 @@ CREATE TABLE scouts (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE guardian_scouts (
+CREATE TABLE IF NOT EXISTS guardian_scouts (
   guardian_id TEXT NOT NULL REFERENCES guardians(id) ON DELETE CASCADE,
   scout_id TEXT NOT NULL REFERENCES scouts(id) ON DELETE CASCADE,
   PRIMARY KEY (guardian_id, scout_id)
 );
 
 -- A scout's account balance is SUM(amount_cents): credits positive, debits negative.
-CREATE TABLE ledger (
+CREATE TABLE IF NOT EXISTS ledger (
   id TEXT PRIMARY KEY,
   scout_id TEXT NOT NULL REFERENCES scouts(id),
   amount_cents INTEGER NOT NULL,
@@ -41,9 +41,9 @@ CREATE TABLE ledger (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-CREATE INDEX ledger_scout ON ledger(scout_id, created_at);
+CREATE INDEX IF NOT EXISTS ledger_scout ON ledger(scout_id, created_at);
 
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY,
   scout_id TEXT NOT NULL REFERENCES scouts(id),
   description TEXT NOT NULL,
@@ -59,10 +59,10 @@ CREATE TABLE invoices (
   voided_at TEXT,
   voided_by TEXT
 );
-CREATE INDEX invoices_scout ON invoices(scout_id);
-CREATE INDEX invoices_status ON invoices(status);
+CREATE INDEX IF NOT EXISTS invoices_scout ON invoices(scout_id);
+CREATE INDEX IF NOT EXISTS invoices_status ON invoices(status);
 
-CREATE TABLE invoice_payments (
+CREATE TABLE IF NOT EXISTS invoice_payments (
   id TEXT PRIMARY KEY,
   invoice_id TEXT NOT NULL REFERENCES invoices(id),
   amount_cents INTEGER NOT NULL,
@@ -71,9 +71,9 @@ CREATE TABLE invoice_payments (
   recorded_by TEXT NOT NULL,
   paid_at TEXT NOT NULL
 );
-CREATE INDEX payments_invoice ON invoice_payments(invoice_id);
+CREATE INDEX IF NOT EXISTS payments_invoice ON invoice_payments(invoice_id);
 
-CREATE TABLE fundraisers (
+CREATE TABLE IF NOT EXISTS fundraisers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   event_date TEXT NOT NULL,
@@ -86,7 +86,7 @@ CREATE TABLE fundraisers (
   created_by TEXT NOT NULL
 );
 
-CREATE TABLE reimbursements (
+CREATE TABLE IF NOT EXISTS reimbursements (
   id TEXT PRIMARY KEY,
   guardian_id TEXT NOT NULL REFERENCES guardians(id),
   submitter_name TEXT NOT NULL,
@@ -106,10 +106,10 @@ CREATE TABLE reimbursements (
   paid_by TEXT,
   payment_note TEXT
 );
-CREATE INDEX reimb_status ON reimbursements(status);
-CREATE INDEX reimb_guardian ON reimbursements(guardian_id);
+CREATE INDEX IF NOT EXISTS reimb_status ON reimbursements(status);
+CREATE INDEX IF NOT EXISTS reimb_guardian ON reimbursements(guardian_id);
 
-CREATE TABLE login_codes (
+CREATE TABLE IF NOT EXISTS login_codes (
   email TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
@@ -117,17 +117,17 @@ CREATE TABLE login_codes (
   sent_at INTEGER NOT NULL
 );
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   expires_at INTEGER NOT NULL
 );
 
-CREATE TABLE audit (
+CREATE TABLE IF NOT EXISTS audit (
   id TEXT PRIMARY KEY,
   at TEXT NOT NULL,
   actor TEXT NOT NULL,
   action TEXT NOT NULL,
   detail TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX audit_at ON audit(at);
+CREATE INDEX IF NOT EXISTS audit_at ON audit(at);
