@@ -1,142 +1,21 @@
-# Builds the app and runs every test on each push and pull request, once against PostgreSQL and
-# once against SQL Server, with Azurite for the Azure blob tests: nothing is skipped here. Each
-# run's page shows the full list of tests (the job summary). After both pass on main (or a v* tag),
-# publishes the container image ghcr.io/<owner>/troop-finances that the Deploy to Azure button and
-# docker-compose.prod.yml run (infra/BUTTONS.md), so a broken build is never published.
 name: Build and test
-
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
-  workflow_dispatch:
-
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   test:
-    name: Tests (${{ matrix.database }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        database: [PostgreSQL, SQL Server]
-    env:
-      # The tests' expectations are written for a US machine: $ amounts, Pacific dates.
-      LANG: en_US.UTF-8
-      TZ: America/Los_Angeles
-      DOTNET_NOLOGO: "true"
-      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
-      # A database or Azurite that isn't there fails the run instead of skipping its tests.
-      TROOPFIN_TEST_REQUIRE_DATABASE: "true"
-      TEST_DB_PASSWORD: Ci-Only-Pa55word!
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-
-      - name: Start PostgreSQL
-        if: matrix.database == 'PostgreSQL'
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Worker bundles and migrations apply
         run: |
-          docker run -d --name db -p 5432:5432 -e POSTGRES_PASSWORD="$TEST_DB_PASSWORD" postgres:17
-          for i in $(seq 1 30); do docker exec db pg_isready -U postgres && break; sleep 2; done
-          echo "TROOPFIN_TEST_POSTGRES=Host=127.0.0.1;Username=postgres;Password=$TEST_DB_PASSWORD" >> "$GITHUB_ENV"
-
-      - name: Start SQL Server
-        if: matrix.database == 'SQL Server'
-        run: |
-          docker run -d --name db -p 1433:1433 -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$TEST_DB_PASSWORD" \
-            mcr.microsoft.com/mssql/server:2022-latest
-          for i in $(seq 1 45); do
-            docker exec db /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$TEST_DB_PASSWORD" -Q "SELECT 1" -b -o /dev/null && break
-            sleep 2
-          done
-          echo "TROOPFIN_TEST_SQLSERVER=Server=127.0.0.1;User Id=sa;Password=$TEST_DB_PASSWORD;TrustServerCertificate=True" >> "$GITHUB_ENV"
-
-      - name: Start Azurite
-        run: |
-          docker run -d --name azurite -p 10000:10000 mcr.microsoft.com/azure-storage/azurite \
-            azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck --loose
-
-      - name: Build
-        run: dotnet build --configuration Release
-
-      - name: Test
-        run: >
-          dotnet test --configuration Release --no-build
-          --logger "GitHubActions;summary-include-passed=true;summary-include-skipped=true"
-          --logger "trx;LogFileName=results.trx"
-          --results-directory TestResults
-
-      - name: Keep the results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.database == 'SQL Server' && 'sqlserver' || 'postgres' }}
-          path: TestResults
-          if-no-files-found: ignore
-
-  image:
-    name: Publish container image
-    needs: test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      # The version the app shows in its footer (Services/AppVersion.cs): 1.2.3 for a v1.2.3 tag,
-      # otherwise year.month.run, e.g. 2026.11.42, which only goes up. Also tags the image with it.
-      - id: version
-        name: Work out the version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(date -u +%Y.%-m).${{ github.run_number }}"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Version $version (${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/troop-finances
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=sha,prefix=sha-
-            type=semver,pattern=v{{version}}
-
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            APP_VERSION=${{ steps.version.outputs.version }}
-            SOURCE_COMMIT=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          npx wrangler deploy --dry-run --outdir dist
+          npx wrangler d1 migrations apply DB --local

@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "troop-finances",
+  "main": "src/index.tsx",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Cloudflare creates these two resources for you on first deploy.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "troop-finances", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [{ "binding": "RECEIPTS", "bucket_name": "troop-finances-receipts" }],
+  "triggers": { "crons": ["17 8 * * *"] },
+  "vars": {
+    "TROOP_NAME": "Our Troop",
+    "ADMIN_EMAILS": "",
+    "EMAIL_FROM": ""
+  },
+  "observability": { "enabled": true }
+}
