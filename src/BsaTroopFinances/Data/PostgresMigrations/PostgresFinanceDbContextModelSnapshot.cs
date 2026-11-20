@@ -1443,6 +1443,10 @@ namespace BsaTroopFinances.Data.PostgresMigrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<string>("TopUpInvoiceIds")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<uint?>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()

@@ -59,18 +59,33 @@ public enum TripLineAction
     Void,
     /// <summary>The cost changed, with nothing paid: voided and issued again at the new amount.</summary>
     Reissue,
-    /// <summary>A change after money was paid: left for the treasurer to sort out by hand.</summary>
+    /// <summary>A change after money was paid that a top-up can't fix (dropped out, or the cost went down): left for the treasurer to sort out by hand.</summary>
     NeedsAttention,
+    /// <summary>The cost went up after money was paid: an extra invoice for the difference is issued.</summary>
+    TopUp,
 }
 
+/// <summary>
+/// One person on a trip in the review. Invoice is their first trip invoice; TopUps are any extra
+/// ones issued when the cost went up after they'd paid (none voided). The totals cover them all.
+/// </summary>
 public sealed record TripReviewLine(
     TripImportLineEntity Line, string? MatchId, string? MatchName, bool MatchIsManual, InvoiceEntity? Invoice,
-    TripLineAction Action, string Note)
+    TripLineAction Action, string Note, IReadOnlyList<InvoiceEntity>? TopUps = null)
 {
-    /// <summary>What's been paid on its current invoice, family and scout funds together.</summary>
-    public decimal PaidSoFar => Invoice is null ? 0 : Invoice.TotalAmount - Invoice.AmountDueFromFamily;
+    /// <summary>Their trip invoice and any top-ups.</summary>
+    public IReadOnlyList<InvoiceEntity> Invoices => Invoice is null ? [] : [Invoice, .. TopUps ?? []];
 
-    public bool WillChange => Action is TripLineAction.Issue or TripLineAction.Void or TripLineAction.Reissue;
+    /// <summary>What their invoices come to in all.</summary>
+    public decimal InvoicedTotal => Invoices.Sum(i => i.TotalAmount);
+
+    /// <summary>What's still owed on them, from the family.</summary>
+    public decimal Due => Invoices.Sum(i => i.AmountDueFromFamily);
+
+    /// <summary>What's been paid on them, family and scout funds together.</summary>
+    public decimal PaidSoFar => InvoicedTotal - Due;
+
+    public bool WillChange => Action is TripLineAction.Issue or TripLineAction.Void or TripLineAction.Reissue or TripLineAction.TopUp;
 }
 
 public sealed record TripReview(TripImportEntity Trip, IReadOnlyList<TripReviewLine> Lines)
@@ -293,13 +308,25 @@ public sealed class SignInAppService(
                 invoice = null;
             }
 
+            var topUps = new List<InvoiceEntity>();
+            if (invoice is not null)
+            {
+                foreach (var id in line.TopUpIds)
+                {
+                    if (await invoices.GetByIdAsync(invoice.OwnerId, id) is { } topUp && topUp.StatusValue != InvoiceStatus.Voided)
+                    {
+                        topUps.Add(topUp);
+                    }
+                }
+            }
+
             var person = people.GetValueOrDefault(line.SignInPersonId);
             var matchId = person?.LinkedId ?? line.ManualMatchId;
             var names = line.IsAdult ? guardianNames : scoutNames;
             var matchName = matchId is null ? null : names.GetValueOrDefault(matchId);
-            var (action, note) = Decide(line, person, matchName is null ? null : matchId, invoice);
+            var (action, note) = Decide(line, person, matchName is null ? null : matchId, invoice is null ? [] : [invoice, .. topUps]);
             lines.Add(new TripReviewLine(line, matchName is null ? null : matchId, matchName,
-                person?.LinkedId is null && line.ManualMatchId is not null, invoice, action, note));
+                person?.LinkedId is null && line.ManualMatchId is not null, invoice, action, note, topUps));
         }
 
         return new TripReview(trip, lines.OrderBy(l => l.Line.IsAdult).ThenBy(l => l.Line.Name).ToList());
@@ -307,31 +334,37 @@ public sealed class SignInAppService(
 
     /// <summary>The rules behind the review, one line at a time.</summary>
     internal static (TripLineAction Action, string Note) Decide(
-        TripImportLineEntity line, SignInPersonEntity? person, string? matchId, InvoiceEntity? invoice)
+        TripImportLineEntity line, SignInPersonEntity? person, string? matchId, IReadOnlyList<InvoiceEntity> current)
     {
-        var paid = invoice is null ? 0 : invoice.TotalAmount - invoice.AmountDueFromFamily;
-        if (invoice is not null)
+        if (current.Count > 0)
         {
+            var total = current.Sum(i => i.TotalAmount);
+            var paid = total - current.Sum(i => i.AmountDueFromFamily);
+            var them = current.Count == 1 ? "the invoice" : "the invoices";
             if (line.IsRemoved)
             {
                 return paid == 0
-                    ? (TripLineAction.Void, "Dropped out: the invoice is voided.")
-                    : (TripLineAction.NeedsAttention, $"Dropped out after paying {paid:C}. Refund or void the invoice by hand.");
+                    ? (TripLineAction.Void, $"Dropped out: {them} {(current.Count == 1 ? "is" : "are")} voided.")
+                    : (TripLineAction.NeedsAttention, $"Dropped out after paying {paid:C}. Refund or void {them} by hand.");
             }
 
-            if (line.Amount == invoice.TotalAmount)
+            if (line.Amount == total)
             {
                 return (TripLineAction.UpToDate, string.Empty);
             }
 
-            if (paid > 0)
+            if (paid == 0)
             {
-                return (TripLineAction.NeedsAttention, $"The cost went from {invoice.TotalAmount:C} to {line.Amount:C} after {paid:C} was paid. Adjust it by hand.");
+                return line.Amount > 0
+                    ? (TripLineAction.Reissue, $"The cost went from {total:C} to {line.Amount:C}: voided and issued again.")
+                    : (TripLineAction.Void, $"Nothing to pay any more: {them} {(current.Count == 1 ? "is" : "are")} voided.");
             }
 
-            return line.Amount > 0
-                ? (TripLineAction.Reissue, $"The cost went from {invoice.TotalAmount:C} to {line.Amount:C}: voided and issued again.")
-                : (TripLineAction.Void, "Nothing to pay any more: the invoice is voided.");
+            // Money's been paid, so the invoice stays. A rise gets an extra invoice for the difference;
+            // a drop means a refund or credit, which is the treasurer's call.
+            return line.Amount > total
+                ? (TripLineAction.TopUp, $"The cost went from {total:C} to {line.Amount:C} after {paid:C} was paid: a top-up invoice for {line.Amount - total:C} is issued.")
+                : (TripLineAction.NeedsAttention, $"The cost went down from {total:C} to {line.Amount:C} after {paid:C} was paid. Refund or credit the difference by hand.");
         }
 
         if (line.IsRemoved)
@@ -407,14 +440,35 @@ public sealed class SignInAppService(
             // Saved up to twice below (after the void, then after the reissue): with no version
             // each save overwrites, rather than failing as stale after the first.
             line.Version = null;
-            if (item.Invoice is { } current)
+            if (item.Action == TripLineAction.TopUp)
+            {
+                // To whoever the first invoice is for, for the difference; the first stays as it is.
+                var owner = item.Invoice!.OwnerId;
+                var extra = line.Amount - item.InvoicedTotal;
+                var description = $"{trip.InvoiceDescription}: cost went up to {line.Amount:C}";
+                var topUp = line.IsAdult
+                    ? await accounts.IssueGuardianInvoiceAsync(owner, extra, trip.DueDate, description, actor)
+                    : await accounts.IssueInvoiceAsync(owner, extra, 0, trip.DueDate, description, actor);
+                line.AddTopUp(topUp.InvoiceId);
+                line.InvoicedAmount = line.Amount;
+                await repository.SaveLineAsync(line);
+                changed++;
+                continue;
+            }
+
+            if (item.Invoices.Count > 0)
             {
                 var reason = item.Action == TripLineAction.Reissue
                     ? $"Trip cost changed to {line.Amount:C} in the sign-in app."
                     : line.IsRemoved ? "Dropped out of the trip in the sign-in app." : "Nothing to pay for the trip any more.";
-                await accounts.VoidInvoiceAsync(current.OwnerId, current.InvoiceId, reason, actor);
+                foreach (var current in item.Invoices)
+                {
+                    await accounts.VoidInvoiceAsync(current.OwnerId, current.InvoiceId, reason, actor);
+                }
+
                 line.InvoiceOwnerId = null;
                 line.InvoiceId = null;
+                line.TopUpInvoiceIds = null;
                 line.InvoicedAmount = 0;
                 await repository.SaveLineAsync(line);
                 line.Version = null;
@@ -441,7 +495,7 @@ public sealed class SignInAppService(
         {
             // Each invoice issued or voided has its own entry already; this one ties them to the trip.
             await audit.AddAsync(FinanceAuditEntityType.TripImport, signUpId, "Invoices updated", actor,
-                details: $"{trip.Title}: {changed} invoice{(changed == 1 ? "" : "s")} issued, voided or reissued.");
+                details: $"{trip.Title}: {changed} invoice{(changed == 1 ? "" : "s")} issued, voided, reissued or topped up.");
         }
 
         return changed;
@@ -485,10 +539,11 @@ public sealed class SignInAppService(
         return review.Lines.Where(l => !l.Line.IsRemoved).Select(l =>
         {
             var matched = l.MatchId is not null || l.Action == TripLineAction.NotBilled;
-            if (l.Invoice is { } invoice)
+            if (l.Invoices.Count > 0)
             {
-                var status = invoice.StatusValue == InvoiceStatus.Paid ? TripLineStatus.Paid : TripLineStatus.Outstanding;
-                return new TripLineStatusDto(l.Line.EntryId, true, status, invoice.TotalAmount, invoice.AmountDueFromFamily, l.PaidSoFar);
+                // Across their trip invoice and any top-ups: paid only when every one is.
+                var status = l.Invoices.All(i => i.StatusValue == InvoiceStatus.Paid) ? TripLineStatus.Paid : TripLineStatus.Outstanding;
+                return new TripLineStatusDto(l.Line.EntryId, true, status, l.InvoicedTotal, l.Due, l.PaidSoFar);
             }
 
             var notInvoiced = l.Action switch
@@ -535,18 +590,24 @@ public sealed class SignInAppService(
             return new(TripPaymentOutcome.NotInvoiced, "The treasurer hasn't issued this person's invoice yet.");
         }
 
+        var split = await SplitAsync(line, invoice, Math.Round(upload.Amount, 2));
         try
         {
             await unitOfWork.InTransactionAsync(async () =>
             {
-                await accounts.RecordInvoicePaymentAsync(invoice.OwnerId, invoice.InvoiceId, Math.Round(upload.Amount, 2),
-                    upload.Method, upload.Reference, Trim(upload.RecordedBy, 200));
+                foreach (var (target, amount) in split)
+                {
+                    await accounts.RecordInvoicePaymentAsync(target.OwnerId, target.InvoiceId, amount,
+                        upload.Method, upload.Reference, Trim(upload.RecordedBy, 200));
+                }
+
                 await repository.AddPaymentAsync(new TripPaymentEntity
                 {
                     PartitionKey = signUpId,
                     RowKey = upload.PaymentId.Trim(),
                     EntryId = line.EntryId,
-                    InvoiceId = invoice.InvoiceId,
+                    // The first invoice it went to; a payment split across a top-up has a payment on each.
+                    InvoiceId = split[0].Invoice.InvoiceId,
                     Amount = Math.Round(upload.Amount, 2),
                     Method = upload.Method,
                     Reference = Trim(upload.Reference ?? string.Empty, 400),
@@ -571,6 +632,41 @@ public sealed class SignInAppService(
         }
 
         return new(TripPaymentOutcome.Recorded, "Recorded.");
+    }
+
+    /// <summary>
+    /// Where a payment goes among someone's trip invoices: the first with something still owed,
+    /// then the next, so a payment covering both the trip and a top-up pays each. A payment for
+    /// more than is owed in all, or when nothing is owed, goes to the first invoice for the ledger
+    /// to refuse as usual.
+    /// </summary>
+    private async Task<IReadOnlyList<(InvoiceEntity Invoice, decimal Amount)>> SplitAsync(TripImportLineEntity line, InvoiceEntity first, decimal amount)
+    {
+        var all = new List<InvoiceEntity> { first };
+        foreach (var id in line.TopUpIds)
+        {
+            if (await invoices.GetByIdAsync(first.OwnerId, id) is { } topUp && topUp.StatusValue != InvoiceStatus.Voided)
+            {
+                all.Add(topUp);
+            }
+        }
+
+        var owing = all.Where(i => i.StatusValue == InvoiceStatus.Outstanding && i.AmountDueFromFamily > 0).ToList();
+        if (owing.Count == 0 || amount > owing.Sum(i => i.AmountDueFromFamily))
+        {
+            return [(owing.Count > 0 ? owing[0] : first, amount)];
+        }
+
+        var parts = new List<(InvoiceEntity, decimal)>();
+        var left = amount;
+        foreach (var invoice in owing.TakeWhile(_ => left > 0))
+        {
+            var part = Math.Min(left, invoice.AmountDueFromFamily);
+            parts.Add((invoice, part));
+            left -= part;
+        }
+
+        return parts;
     }
 
     // A calendar date, not a moment: stored as midnight UTC and shown from its UTC date, as the

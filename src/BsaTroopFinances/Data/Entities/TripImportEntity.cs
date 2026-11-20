@@ -77,8 +77,14 @@ public class TripImportLineEntity
     public string? InvoiceOwnerId { get; set; }
     public string? InvoiceId { get; set; }
 
-    /// <summary>The amount that invoice was issued for, to spot a changed cost.</summary>
+    /// <summary>What this line's invoices were issued for in all, the top-ups included.</summary>
     public decimal InvoicedAmount { get; set; }
+
+    /// <summary>
+    /// Extra invoices for the same owner, issued when the cost went up after money was paid
+    /// (TripLineAction.TopUp), comma-separated; null when there are none.
+    /// </summary>
+    public string? TopUpInvoiceIds { get; set; }
 
     public DateTimeOffset LastReceivedUtc { get; set; }
 
@@ -86,6 +92,11 @@ public class TripImportLineEntity
     public string EntryId => RowKey;
     public bool IsAdult => PersonType == SignInPersonType.Adult;
     public bool HasInvoice => !string.IsNullOrEmpty(InvoiceId);
+
+    public IReadOnlyList<string> TopUpIds =>
+        (TopUpInvoiceIds ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    public void AddTopUp(string invoiceId) => TopUpInvoiceIds = string.Join(',', TopUpIds.Append(invoiceId));
 }
 
 /// <summary>

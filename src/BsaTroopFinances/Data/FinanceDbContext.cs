@@ -306,6 +306,8 @@ public class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbCo
             e.Ignore(l => l.EntryId);
             e.Ignore(l => l.IsAdult);
             e.Ignore(l => l.HasInvoice);
+            e.Ignore(l => l.TopUpIds);
+            e.Property(l => l.TopUpInvoiceIds).HasMaxLength(2000);
         });
 
         model.Entity<TripPaymentEntity>(e =>
