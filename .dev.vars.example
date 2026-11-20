@@ -1,0 +1,6 @@
+# Copy to .dev.vars for `npm run dev`. Never commit .dev.vars.
+ADMIN_EMAILS=you@example.com
+CODE_PEPPER=local-only-pepper
+# Leave RESEND_API_KEY unset locally: sign-in codes are printed to the terminal instead.
+# RESEND_API_KEY=
+# EMAIL_FROM=Troop <finance@example.org>

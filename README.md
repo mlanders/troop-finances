@@ -1,206 +1,63 @@
 # Troop Finances
 
-[![Build and test](https://github.com/sacparker09/troop-finances/actions/workflows/ci.yml/badge.svg)](https://github.com/sacparker09/troop-finances/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
 Money tracking for a Scouts BSA troop: reimbursement receipts that adults submit, invoices scouts
-owe (trips, camp, meals), and fundraiser proceeds credited to individual scouts' accounts. Parents
-see their scout's balance and submit receipts from their phone; the treasurer manages the rest.
+owe, and fundraiser proceeds credited to each scout's account. Parents see their scout's balance and
+submit receipts from their phone; the treasurer manages the rest.
 
-![The treasurer's dashboard: pending reimbursements, outstanding invoices, active fundraisers and the troop's bank balance](docs/images/dashboard.jpg)
+Written in TypeScript for **Cloudflare Workers** (Hono), with **D1** for data and **R2** for receipt files.
+It fits comfortably in Cloudflare's free tier for a troop-sized site.
 
-More screens, from reimbursements to bank reconciliation: [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+## One-click install
 
-## Set it up for your troop
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mlanders/troop-finances)
 
-Any Scouts BSA troop can run its own copy, with its own database and nothing shared with
-any other troop. Nothing about a particular troop is written into the app.
+To install the TypeScript version straight from its branch before it is merged to `main`, use
+[this button's branch link](https://deploy.workers.cloudflare.com/?url=https://github.com/mlanders/troop-finances/tree/claude/ecstatic-gates-mx62od)
+(remove this line once merged).
 
-**Before you deploy**, set up Google sign-in and an email service (about 20 minutes, the same
-for every host). [infra/SETUP.md](infra/SETUP.md) walks through it, then each host step by step.
+Cloudflare copies the repo to your GitHub, creates the D1 database and R2 bucket, runs the migrations
+and deploys. When it asks for settings:
 
-<table>
-  <thead>
-    <tr>
-      <th align="left">Host</th>
-      <th align="left">Deploy</th>
-      <th align="right">Per month</th>
-      <th align="left">Best for</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><b>Render</b></td>
-      <td><a href="https://render.com/deploy?repo=https://github.com/sacparker09/troop-finances"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" height="32"></a></td>
-      <td align="right">~$13</td>
-      <td>The simplest setup: everything in one place. <a href="infra/SETUP.md#render">Guide</a></td>
-    </tr>
-    <!-- Railway: uncomment once the template is published (infra/BUTTONS.md), with its code in place of TEMPLATE_CODE.
-    <tr>
-      <td><b>Railway</b></td>
-      <td><a href="https://railway.com/deploy/TEMPLATE_CODE?utm_medium=integration&utm_source=button&utm_campaign=troop-finances"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="32"></a></td>
-      <td align="right">~$5–10</td>
-      <td>Like Render, billed by use. <a href="infra/SETUP.md#railway">Guide</a></td>
-    </tr>
-    -->
-    <tr>
-      <td><b>DigitalOcean</b></td>
-      <td><a href="https://cloud.digitalocean.com/apps/new?repo=https://github.com/sacparker09/troop-finances/tree/main"><img src="https://www.deploytodo.com/do-btn-blue.svg" alt="Deploy to DigitalOcean" height="32"></a></td>
-      <td align="right">~$24</td>
-      <td>Troops already using DigitalOcean. <a href="infra/SETUP.md#digitalocean">Guide</a></td>
-    </tr>
-    <tr>
-      <td><b>Azure</b></td>
-      <td><a href="https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsacparker09%2Ftroop-finances%2Fmain%2Finfra%2Fcontainer-apps%2Fazuredeploy.json"><img src="https://aka.ms/deploytoazurebutton" alt="Deploy to Azure" height="32"></a></td>
-      <td align="right">~$17</td>
-      <td>Troops with Azure or nonprofit credits. Also <code>azd up</code>. <a href="infra/SETUP.md#azure">Guide</a></td>
-    </tr>
-    <tr>
-      <td><b>Fly.io</b></td>
-      <td><a href="infra/SETUP.md#flyio">Command line</a></td>
-      <td align="right">~$2–6</td>
-      <td>The lowest cost, with a free Neon database.</td>
-    </tr>
-    <tr>
-      <td><b>Your own server</b></td>
-      <td><a href="infra/SETUP.md#your-own-server">Docker Compose</a></td>
-      <td align="right">~$6–12</td>
-      <td>Anyone already running a Linux server.</td>
-    </tr>
-  </tbody>
-</table>
+| Setting | What to enter |
+| --- | --- |
+| `TROOP_NAME` | e.g. `Troop 123` |
+| `ADMIN_EMAILS` | The treasurer's email(s), comma-separated. These can sign in as admins. |
+| `EMAIL_FROM` | Sender for sign-in codes, e.g. `Troop 123 <finance@yourdomain.org>` |
+| `RESEND_API_KEY` | Secret. Free key from [resend.com](https://resend.com) (verify your sending domain there). |
+| `CODE_PEPPER` | Secret. Any long random string. |
 
-**Just looking?** Try it in your browser with sample data, nothing to install:
+Then open your `*.workers.dev` URL, sign in with an admin email, add scouts and guardians, and link them.
+Guardians sign in with the same email-code flow using the address you gave for them.
 
-<a href="https://codespaces.new/sacparker09/troop-finances?quickstart=1"><img src="https://github.com/codespaces/badge.svg" alt="Open in GitHub Codespaces" height="32"></a>
+No email service yet? Sign-in codes are printed to the Worker log instead (`npx wrangler tail`), which is enough to get started.
 
-Prices are estimates for a troop-sized site; each host bills whoever creates the account.
+## What it does
 
-## Who uses it
+- **Scouts & guardians**: bulk add, link families, per-scout ledger and balance.
+- **Invoices**: issue to many scouts at once; money already in a scout's account is applied first, and the family owes the rest. Record check/cash/Venmo payments; void with a reason.
+- **Fundraisers**: record raised/expenses, then split the net evenly into scouts' accounts (to the cent).
+- **Reimbursements**: guardians upload a receipt photo/PDF (stored in R2); the treasurer approves, rejects or marks paid.
+- **Audit log** on the dashboard; passwordless email-code sign-in; admin management.
 
-- **Treasurers and leaders** (`/admin`) sign in with a Microsoft or Google account. They review
-  and pay reimbursements, issue invoices, record fundraiser proceeds, and manage the roster.
-  Signing in grants nothing by itself: an Editor gives each person **Read only** or **Edit**
-  access under Settings > People & access, and every change is recorded in Activity History.
-- **Parents and guardians** (`/portal`) sign in with a code emailed to them, or an
-  authenticator app. They submit receipts and see their scout's balance and invoices.
-
-The full rules (the first Editor, global admins, temporary Edit, authenticator apps) are in
-[docs/ACCESS.md](docs/ACCESS.md).
-
-On a phone, the site installs as a home-screen app named for the troop (e.g. **52 Finance**),
-with the troop's number on its icon. Signed-in users see an "Add to your home screen" prompt, with
-Safari's steps on iPhone and iPad.
-
-## How the money is kept
-
-- Each **scout** has a running balance, backed by an append-only **ledger** (`ScoutLedger`).
-  Fundraiser allocations credit it; invoices can be paid from it. The ledger is the source of
-  truth; the scout's `CachedBalance` is kept in step with it (`Services/ScoutAccountService.cs`).
-- Normal actions never push a balance below zero: they use only what's available. A
-  **manual adjustment**, with a required reason, is the one way to correct it.
-- Payments are **record-keeping only**: no payment processor. Reimbursements and invoices are
-  marked paid after the money moves outside the app.
-- Every change that moves money is **one database transaction**: the ledger entry, balance,
-  invoice, payment and audit entry are saved together or not at all (`Data/FinanceDb.cs`).
-  Emails go out only after it commits.
-- Records live in SQL Server (Azure SQL) or PostgreSQL, through EF Core. Receipts are in private
-  storage (Azure Blob Storage, an S3 bucket, or a folder): every download goes through a
-  signed-in, ownership-checked endpoint.
-- Every night the app backs up all records and receipts, keeping the newest 14.
-
-## Email
-
-Every email goes through `Services/EmailNotificationService.cs`, which checks the on/off setting
-for its type, sends, and logs a summary (never the body) in `EmailLog`:
-
-| Email | To | |
-|---|---|---|
-| Sign-in code | The guardian signing in | Always on |
-| Authenticator app added or removed | The guardian | Always on |
-| Receipt submitted | Admin notification addresses and the guardian | |
-| Receipt approved, rejected or paid | The guardian | |
-| Invoice issued | The scout's linked guardians | |
-| Edit access granted | Editors, the committee chair, `Auth:EditorGrantNotify` | Off until turned on |
-
-Settings (`/admin/settings`) turns each one on or off, holds the admin notification addresses,
-and shows the last 3 months of sent email. A failed email is logged but never blocks the action
-that sent it.
-
-## Local development
-
-The quickest start, with nothing to install but Docker:
+## Develop
 
 ```bash
-docker compose up --build
+npm install
+cp .dev.vars.example .dev.vars   # then edit
+npm run db:local
+npm run dev                      # http://localhost:8787, sign-in codes print to the terminal
+npm test && npm run typecheck
 ```
 
-Open http://localhost:8080 (fake admin sign-in, sample data); sign-in codes arrive in Mailpit at
-http://localhost:8025. Add `-f docker-compose.yml -f docker-compose.postgres.yml` for PostgreSQL.
+Deploy manually with `npx wrangler login && npm run deploy`.
 
-To work on the code with `dotnet run`, you need the .NET 10 SDK, SQL Server LocalDB (installed
-with Visual Studio) and [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
-for receipt files:
+## Notes on the port
 
-```bash
-npm install -g azurite
-azurite --silent --location ./azurite-data          # leave running
+This is a TypeScript rewrite of the original .NET/Blazor app, which is preserved under [`legacy/`](legacy/)
+for reference. The rewrite covers the core money workflows above. Not yet ported: bank
+register/reconciliation, PDF invoices and reports, donations and tax letters, trip imports, the
+sign-in-app integration, authenticator-app (TOTP) 2FA, Google sign-in and the nightly backup export.
 
-cd src/BsaTroopFinances
-dotnet user-secrets set "Auth:LoginCodePepper" "any-long-random-string-for-local-dev"
-dotnet run --launch-profile dev-signin
-```
+## License
 
-- **Dev sign-in.** The `dev-signin` profile signs you in at `/dev/signin` as a fake Editor
-  (`?role=Reader` for read only, `?role=None` for no access) and loads a small sample troop into
-  an empty database. It refuses to start outside Development (`Services/DevAuth.cs`). To use real
-  Microsoft or Google sign-in instead, set their client id and secret with user-secrets and run
-  without the profile.
-- **Email.** In Development nothing is sent: each email, sign-in codes included, is written to the
-  console.
-- **Database.** The app creates and updates its database on startup. After changing an entity,
-  add a migration for **each** engine (`dotnet tool restore` once first); a test fails if either
-  is missing:
-  ```bash
-  dotnet ef migrations add <Name> --project src/BsaTroopFinances --context FinanceDbContext --output-dir Data/Migrations
-  dotnet ef migrations add <Name> --project src/BsaTroopFinances --context PostgresFinanceDbContext --output-dir Data/PostgresMigrations
-  ```
-- **Lots of data.** `dotnet run -- seed-test-data` adds a year of activity for paging, filters and
-  reports; see [docs/TEST-DATA.md](docs/TEST-DATA.md).
-
-## Tests
-
-```bash
-dotnet test
-```
-
-- **Page tests** render admin pages in memory with [bUnit](https://bunit.dev), signed in as a
-  fake user, with [NSubstitute](https://nsubstitute.github.io) fakes for what each page uses.
-- **Database tests** (`Sql*Tests`) run the real repositories, services, migrations and backups
-  against a throwaway database per test class, including transactions that must roll back
-  completely when something fails partway. They use LocalDB, or the server in
-  `TROOPFIN_TEST_POSTGRES` or `TROOPFIN_TEST_SQLSERVER` (a connection string without a database
-  name), and skip themselves when none is available.
-- **Storage tests** hold every file store to the same behaviour: a folder, S3 (an in-memory
-  stand-in), and Azure Blob Storage when Azurite is running.
-
-On GitHub, [ci.yml](.github/workflows/ci.yml) runs every test on each push and pull request,
-against both PostgreSQL and SQL Server, with nothing skipped. Each run's **Summary** lists every
-test.
-
-When writing tests, note that money inputs fill from the cents like a cash register: typing `50`
-means $0.50, so type `50.00`.
-
-## More documentation
-
-- [infra/SETUP.md](infra/SETUP.md): setting it up for a troop, host by host.
-- [infra/HOSTING.md](infra/HOSTING.md): every setting, the database and storage choices, and
-  letting the app sleep when idle.
-- [infra/DEPLOY.md](infra/DEPLOY.md): the Azure App Service deployment (`infra/main.bicep`, and
-  `infra/deploy.ps1` for code changes), backups and restoring.
-- [infra/BUTTONS.md](infra/BUTTONS.md): maintaining the deploy buttons and the published image.
-- [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md): a tour of the admin pages.
-- [docs/ACCESS.md](docs/ACCESS.md): who can sign in and what they can do.
-- [docs/TEST-DATA.md](docs/TEST-DATA.md): generating test data.
-
-Free to use under the [MIT License](LICENSE).
+MIT, see [LICENSE](LICENSE).
