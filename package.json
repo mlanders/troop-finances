@@ -19,19 +19,37 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261119.1",
+    "@types/node": "^22.0.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0",
     "wrangler": "^4.0.0"
   },
   "cloudflare": {
     "label": "Troop Finances",
-    "products": ["Workers", "D1", "R2"],
+    "products": [
+      "Workers",
+      "D1",
+      "R2"
+    ],
     "bindings": {
-      "TROOP_NAME": { "description": "Your troop's display name, e.g. \"Troop 123\"." },
-      "ADMIN_EMAILS": { "description": "Comma-separated email addresses of the treasurer(s) who can sign in as admins." },
-      "EMAIL_FROM": { "description": "Sender address for sign-in codes, on a domain verified in Resend, e.g. \"Troop 123 <finance@example.org>\"." },
-      "RESEND_API_KEY": { "description": "Resend API key used to email sign-in codes (resend.com, free tier is plenty)." },
-      "CODE_PEPPER": { "description": "Any long random string. Keeps stored sign-in code hashes private." }
+      "TROOP_NAME": {
+        "description": "Your troop's display name, e.g. \"Troop 123\"."
+      },
+      "ADMIN_EMAILS": {
+        "description": "Comma-separated email addresses of the treasurer(s) who can sign in as admins."
+      },
+      "EMAIL_FROM": {
+        "description": "Sender address for sign-in codes, on a domain verified in Resend, e.g. \"Troop 123 <finance@example.org>\"."
+      },
+      "RESEND_API_KEY": {
+        "description": "Resend API key used to email sign-in codes (resend.com, free tier is plenty)."
+      },
+      "CODE_PEPPER": {
+        "description": "Any long random string. Keeps stored sign-in code hashes private."
+      }
     }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
