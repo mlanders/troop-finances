@@ -229,9 +229,11 @@ builder.Services.AddScoped<IListViewRepository, ListViewRepository>();
 builder.Services.AddScoped<IEmailLogRepository, EmailLogRepository>();
 builder.Services.AddScoped<IEmailSettingsRepository, EmailSettingsRepository>();
 builder.Services.AddScoped<IAdminUserRepository, AdminUserRepository>();
+builder.Services.AddScoped<ISignInAppRepository, SignInAppRepository>();
 
 // ---- App services ----
 builder.Services.AddScoped<IScoutAccountService, ScoutAccountService>();
+builder.Services.AddScoped<SignInAppService>();
 builder.Services.AddScoped<IDonationService, DonationService>();
 builder.Services.AddScoped<ITroopAccountService, TroopAccountService>();
 builder.Services.AddScoped<IReimbursementService, ReimbursementService>();
@@ -340,6 +342,10 @@ else if (!string.IsNullOrWhiteSpace(app.Configuration["Backup:TriggerKey"]))
     app.Logger.LogWarning("Backup:TriggerKey is shorter than {Length} characters, so {Path} is turned off.",
         BackupTrigger.MinimumKeyLength, BackupTrigger.Path);
 }
+
+// ---- The meeting sign-in app's roster, trips and payments (see Services/SignInAppApi). Only
+// exists once SignInApp:ApiKey is set. ----
+SignInAppApi.Map(app);
 
 // ---- Receipt downloads: no public access, no SAS tokens -- every download is mediated here,
 // checking auth (and, for parents, ownership) before streaming from blob storage. ----

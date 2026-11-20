@@ -29,6 +29,10 @@ public static class TableNames
     public const string EmailSettings = "EmailSettings";
     public const string AdminUsers = "AdminUsers";
     public const string AdminSignIns = "AdminSignIns";
+    public const string SignInPeople = "SignInPeople";
+    public const string TripImports = "TripImports";
+    public const string TripImportLines = "TripImportLines";
+    public const string TripPayments = "TripPayments";
 
     public const string ReceiptsContainer = "receipts";
 
@@ -65,5 +69,9 @@ public static class TableNames
         (DepositLines, typeof(DepositLineEntity)),
         (Reconciliations, typeof(ReconciliationEntity)),
         (ListViews, typeof(ListViewEntity)),
+        (SignInPeople, typeof(SignInPersonEntity)),
+        (TripImports, typeof(TripImportEntity)),
+        (TripImportLines, typeof(TripImportLineEntity)),
+        (TripPayments, typeof(TripPaymentEntity)),
     ];
 }

@@ -1258,6 +1258,250 @@ namespace BsaTroopFinances.Data.PostgresMigrations
                     b.ToTable("ScoutLedger", (string)null);
                 });
 
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.SignInPersonEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<bool>("IsActiveInSignIn")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastSyncedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LinkedBy")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("LinkedGuardianId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("LinkedScoutId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTimeOffset?>("LinkedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("NotBilled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PersonType")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<uint?>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("LinkedGuardianId")
+                        .IsUnique();
+
+                    b.HasIndex("LinkedScoutId")
+                        .IsUnique();
+
+                    b.ToTable("SignInPeople", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.TripImportEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset>("DueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastAppliedBy")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTimeOffset?>("LastAppliedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("LastReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastSentBy")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTimeOffset>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<uint?>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("WhenText")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("StartDate");
+
+                    b.ToTable("TripImports", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.TripImportLineEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
+
+                    b.Property<string>("CostText")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("InvoiceId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("InvoiceOwnerId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<decimal>("InvoicedAmount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
+
+                    b.Property<bool>("IsRemoved")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ManualMatchId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("PersonType")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("SignInPersonId")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<uint?>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("SignInPersonId");
+
+                    b.ToTable("TripImportLines", (string)null);
+                });
+
+            modelBuilder.Entity("BsaTroopFinances.Data.Entities.TripPaymentEntity", b =>
+                {
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RowKey")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
+
+                    b.Property<string>("EntryId")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("InvoiceId")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<DateTimeOffset>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<uint?>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("PartitionKey", "RowKey");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.ToTable("TripPayments", (string)null);
+                });
+
             modelBuilder.Entity("BsaTroopFinances.Data.Entities.TroopAccountEntity", b =>
                 {
                     b.Property<string>("PartitionKey")
