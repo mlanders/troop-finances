@@ -6,6 +6,7 @@
 @inject IGuardianRepository GuardianRepository
 @inject IFinanceAuditRepository AuditRepository
 @inject ITroopAccountService TroopAccountService
+@inject SignInAppService SignInApp
 @using BsaTroopFinances.Data
 @using BsaTroopFinances.Data.Repositories
 
@@ -19,6 +20,26 @@
 }
 else
 {
+    @* What the meeting sign-in app has sent that's waiting on the treasurer. *@
+    @if (_unlinked > 0 || _tripsToReview > 0)
+    {
+        <div class="alert alert-warning dashboard-signin-alert">
+            <i class="fa-solid fa-campground" aria-hidden="true"></i>
+            @if (_unlinked > 0)
+            {
+                <a href="/admin/families/signin-links">@_unlinked sign-in app @(_unlinked == 1 ? "person" : "people") not linked</a>
+            }
+            @if (_unlinked > 0 && _tripsToReview > 0)
+            {
+                <text> · </text>
+            }
+            @if (_tripsToReview > 0)
+            {
+                <a href="/admin/invoices/trips">@_tripsToReview trip@(_tripsToReview == 1 ? "" : "s") to review</a>
+            }
+        </div>
+    }
+
     <div class="stat-grid">
         <div class="card stat-card stat-card-navy">
             <div class="stat-card-header">
@@ -196,6 +217,8 @@ else
     private IReadOnlyList<Data.Entities.FundraiserEventEntity> _activeFundraisers = [];
     private int _activeScoutCount;
     private int _activeGuardianCount;
+    private int _unlinked;
+    private int _tripsToReview;
     private IReadOnlyList<Data.Entities.FinanceAuditEntryEntity> _recentActivity = [];
 
     private decimal ActiveFundraisersRaised => _activeFundraisers.Sum(f => f.TotalRaised ?? 0);
@@ -215,6 +238,8 @@ else
         var guardians = await GuardianRepository.GetAllAsync();
         _activeGuardianCount = guardians.Count(g => g.IsActive);
         _recentActivity = await AuditRepository.GetRecentAsync(10);
+        _unlinked = await SignInApp.CountUnlinkedAsync();
+        _tripsToReview = await SignInApp.CountTripsNeedingReviewAsync();
         _loading = false;
     }
 }

@@ -16,6 +16,8 @@ public class AdminSectionsTests
     [InlineData("/admin/invoices/abc/void", "Invoices", "Invoices")]
     [InlineData("/admin/invoices/family-payment?guardianId=x", "Invoices", "Record family payment")]
     [InlineData("/admin/invoices/bulk", "Invoices", "Invoice all active scouts")]
+    [InlineData("/admin/invoices/trips/abc", "Invoices", "Trip sign-ups")]
+    [InlineData("/admin/families/signin-links", "Families", "Sign-in app links")]
     [InlineData("/admin/donations/abc/credit", "Fundraising", "Donations")]
     [InlineData("/admin/fundraisers/new", "Fundraising", "Fundraisers")]
     [InlineData("/admin/scouts/abc", "Families", "Scouts")]
@@ -63,8 +65,8 @@ public class SectionTabsTests : AdminPageTestBase
 
         var tabs = RenderAt("/admin/scouts/abc").FindAll(".section-tab");
 
-        Assert.Equal(["Families", "Scouts", "Guardians"], tabs.Select(t => t.TextContent));
-        Assert.Equal(["/admin/families", "/admin/scouts", "/admin/guardians"], tabs.Select(t => t.GetAttribute("href")));
+        Assert.Equal(["Families", "Scouts", "Guardians", "Sign-in app links"], tabs.Select(t => t.TextContent));
+        Assert.Equal(["/admin/families", "/admin/scouts", "/admin/guardians", "/admin/families/signin-links"], tabs.Select(t => t.GetAttribute("href")));
         Assert.Equal("page", tabs[1].GetAttribute("aria-current"));
         Assert.Null(tabs[0].GetAttribute("aria-current"));
     }
@@ -74,7 +76,7 @@ public class SectionTabsTests : AdminPageTestBase
     {
         SignInAs(AdminRole.Writer);
 
-        Assert.Equal(["Invoices", "Record family payment", "Invoice all active scouts"],
+        Assert.Equal(["Invoices", "Record family payment", "Invoice all active scouts", "Trip sign-ups"],
             RenderAt("/admin/invoices").FindAll(".section-tab").Select(t => t.TextContent));
     }
 

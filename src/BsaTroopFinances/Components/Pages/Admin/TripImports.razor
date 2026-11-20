@@ -1,0 +1,101 @@
+@page "/admin/invoices/trips"
+@rendermode InteractiveServer
+@inject SignInAppService SignInApp
+@inject IConfiguration Configuration
+@inject TimeProvider TimeProvider
+@using BsaTroopFinances.Services
+
+<PageTitle>Trip sign-ups</PageTitle>
+
+<h1>Trip sign-ups</h1>
+<p class="hint">
+    Trips the meeting sign-in app has sent, with what each person owes. Nothing is invoiced until you
+    open a trip, check who everyone is, and issue its invoices. When a trip is sent again, it shows
+    who's new, whose cost changed and who dropped out.
+</p>
+
+@if (SignInAppApi.Key(Configuration) is null)
+{
+    <div class="alert alert-warning">The sign-in app can't send anything yet: set <code>SignInApp:ApiKey</code> (32 characters or more) and give the same key to the sign-in app.</div>
+}
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_reviews.Count == 0)
+{
+    <div class="card"><p class="hint">No trips have been sent yet.</p></div>
+}
+else
+{
+    @foreach (var (heading, group) in Groups)
+    {
+        @if (group.Count > 0)
+        {
+            <div class="card">
+                <h2>@heading</h2>
+                <div class="table-scroll" role="region" tabindex="0" aria-label="@heading">
+                    <table class="report-table">
+                        <thead><tr><th>Trip</th><th>When</th><th>People</th><th>Waiting on you</th><th>Last sent</th></tr></thead>
+                        <tbody>
+                            @foreach (var review in group)
+                            {
+                                var trip = review.Trip;
+                                <tr @key="trip.SignUpId">
+                                    <td><a href="@($"/admin/invoices/trips/{trip.SignUpId}")">@trip.Title</a></td>
+                                    <td>@trip.WhenText</td>
+                                    <td>@review.Lines.Count(l => !l.Line.IsRemoved)</td>
+                                    <td>
+                                        @if (review.Changes > 0)
+                                        {
+                                            <span class="badge badge-pending">@review.Changes to invoice</span>
+                                        }
+                                        @if (review.Waiting > 0)
+                                        {
+                                            <span class="badge badge-rejected">@review.Waiting need@(review.Waiting == 1 ? "s" : "") you</span>
+                                        }
+                                        @if (review.Changes == 0 && review.Waiting == 0)
+                                        {
+                                            <span class="badge badge-approved">Up to date</span>
+                                        }
+                                    </td>
+                                    <td>@trip.LastReceivedUtc.ToLocalTime().ToString("MMM d, h:mm tt")<br /><span class="hint">by @trip.LastSentBy</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private List<TripReview> _reviews = [];
+
+    // Coming up (or ended in the last month) first, soonest first; older ones after, newest first.
+    private IEnumerable<(string, List<TripReview>)> Groups
+    {
+        get
+        {
+            var since = TimeProvider.GetUtcNow().AddDays(-30);
+            yield return ("Current", _reviews.Where(r => r.Trip.EndDate >= since).OrderBy(r => r.Trip.StartDate).ToList());
+            yield return ("Earlier", _reviews.Where(r => r.Trip.EndDate < since).OrderByDescending(r => r.Trip.StartDate).ToList());
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        foreach (var trip in await SignInApp.GetTripsAsync())
+        {
+            if (await SignInApp.GetReviewAsync(trip.SignUpId) is { } review)
+            {
+                _reviews.Add(review);
+            }
+        }
+
+        _loading = false;
+    }
+}

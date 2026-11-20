@@ -20,6 +20,10 @@ public static class FinanceAuditEntityType
     /// the entity id is the sign-in app's PersonId.</summary>
     public const string SignInLink = "SignInLink";
 
+    /// <summary>A trip sent from the sign-in app (Invoices > Trip sign-ups): a line matched by hand,
+    /// or its invoices issued or updated. The entity id is the sign-in app's sign-up id.</summary>
+    public const string TripImport = "TripImport";
+
     /// <summary>The admin page showing the record an audit entry is about. Scout/Guardian route to
     /// their list pages rather than a detail page, since the only audited action for either today
     /// is deletion -- there's no surviving detail page to link to afterward.</summary>
@@ -36,6 +40,7 @@ public static class FinanceAuditEntityType
         Deposit => $"/admin/bank/deposits/{entityId}",
         ListView => $"/admin/{entityId}",
         SignInLink => "/admin/families/signin-links",
+        TripImport => $"/admin/invoices/trips/{entityId}",
         _ => "/admin",
     };
 
@@ -53,6 +58,7 @@ public static class FinanceAuditEntityType
         Deposit => ("fa-money-bill-transfer", "stat-card-green"),
         ListView => ("fa-filter", "stat-card-navy"),
         SignInLink => ("fa-link", "stat-card-navy"),
+        TripImport => ("fa-campground", "stat-card-red"),
         _ => ("fa-circle-info", "stat-card-gold"),
     };
 }

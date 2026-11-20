@@ -1,0 +1,265 @@
+@page "/admin/invoices/trips/{Id}"
+@rendermode InteractiveServer
+@inject SignInAppService SignInApp
+@inject IScoutRepository ScoutRepository
+@inject IGuardianRepository GuardianRepository
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>@(_review?.Trip.Title ?? "Trip")</PageTitle>
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (_review is null)
+{
+    <div class="alert alert-danger">That trip hasn't been sent from the sign-in app.</div>
+    <a class="btn btn-secondary" href="/admin/invoices/trips">Back to trip sign-ups</a>
+}
+else
+{
+    var trip = _review.Trip;
+    <h1>@trip.Title</h1>
+    <p>
+        @trip.WhenText · invoices due @trip.DueDate.UtcDateTime.ToString("MMM d, yyyy")
+        <br /><span class="hint">
+            Sent @trip.LastReceivedUtc.ToLocalTime().ToString("MMM d 'at' h:mm tt") by @trip.LastSentBy.
+            @if (trip.LastAppliedUtc is { } applied)
+            {
+                <text> Invoices last updated @applied.ToLocalTime().ToString("MMM d 'at' h:mm tt") by @trip.LastAppliedBy.</text>
+            }
+        </span>
+    </p>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger" role="alert">@_error</div>
+    }
+    @if (_message is not null)
+    {
+        <div class="alert alert-success" role="status">@_message</div>
+    }
+
+    <div class="card">
+        @if (_review.Changes > 0)
+        {
+            <p><strong>@_review.Changes invoice@(_review.Changes == 1 ? "" : "s") to issue, void or reissue</strong>, as marked below.</p>
+        }
+        else
+        {
+            <p>Every invoice matches the trip.</p>
+        }
+        @if (_review.Waiting > 0)
+        {
+            <p class="hint">@_review.Waiting @(_review.Waiting == 1 ? "person needs" : "people need") you first: match them, or sort out the change by hand. They're left out until then.</p>
+        }
+
+        <div class="table-scroll" role="region" tabindex="0" aria-label="People on the trip">
+            <table class="report-table trip-review">
+                <thead><tr><th>Name</th><th>Cost</th><th>Who they are here</th><th>Invoice</th><th>What happens</th></tr></thead>
+                <tbody>
+                    @foreach (var item in _review.Lines)
+                    {
+                        var line = item.Line;
+                        <tr @key="line.EntryId" class="@(line.IsRemoved ? "trip-removed" : "")">
+                            <td>
+                                @line.Name
+                                <br /><span class="hint">@(line.IsAdult ? "Adult" : "Scout")@(line.IsRemoved ? " · dropped out" : "")@(string.IsNullOrEmpty(line.SignInPersonId) ? " · typed in" : "")</span>
+                            </td>
+                            <td class="money">
+                                @line.Amount.ToString("C")
+                                @if (line.CostText.Length > 0)
+                                {
+                                    <br /><span class="hint">@line.CostText</span>
+                                }
+                            </td>
+                            <td>
+                                @if (item.MatchName is not null)
+                                {
+                                    @item.MatchName
+                                    <br /><span class="hint">@(item.MatchIsManual ? "matched for this trip" : "linked")</span>
+                                    @if (item.MatchIsManual && _canWrite && !line.HasInvoice)
+                                    {
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled="@_busy" @onclick="() => MatchAsync(line, null)">Clear</button>
+                                    }
+                                }
+                                else if (item.Action == TripLineAction.NeedsMatch && _canWrite)
+                                {
+                                    <select aria-label="@($"Who {line.Name} is here")" @onchange="e => MatchAsync(line, e.Value?.ToString())" disabled="@_busy">
+                                        <option value="">Match @(line.IsAdult ? "a guardian" : "a scout")&hellip;</option>
+                                        @foreach (var (id, name) in Candidates(line))
+                                        {
+                                            <option value="@id">@name</option>
+                                        }
+                                    </select>
+                                    @if (!string.IsNullOrEmpty(line.SignInPersonId))
+                                    {
+                                        <br /><a class="hint" href="/admin/families/signin-links">or link them for every trip</a>
+                                    }
+                                }
+                                else if (item.Action == TripLineAction.NotBilled)
+                                {
+                                    <span class="hint">Not billed</span>
+                                }
+                                else
+                                {
+                                    <span class="hint">—</span>
+                                }
+                            </td>
+                            <td>
+                                @if (item.Invoice is { } invoice)
+                                {
+                                    <a href="@($"/admin/invoices/{invoice.InvoiceId}?scoutId={Uri.EscapeDataString(invoice.OwnerId)}")">
+                                        <span class="badge badge-@invoice.StatusValue.ToLowerInvariant()">@invoice.StatusValue</span>
+                                    </a>
+                                    @if (item.PaidSoFar > 0)
+                                    {
+                                        <br /><span class="hint">@item.PaidSoFar.ToString("C") paid</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="hint">None</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @ActionBadge(item.Action)">@ActionLabel(item.Action)</span>
+                                @if (item.Note.Length > 0)
+                                {
+                                    <br /><span class="hint">@item.Note</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (_canWrite)
+        {
+            <div class="row-actions" style="margin-top:0.75rem;">
+                @if (_confirming)
+                {
+                    <span>Issue, void and reissue @_review.Changes invoice@(_review.Changes == 1 ? "" : "s") now? New invoices email the family, as any invoice does when those emails are on.</span>
+                    <button type="button" class="btn btn-primary" disabled="@_busy" @onclick="ApplyAsync">Yes, update the invoices</button>
+                    <button type="button" class="btn btn-secondary" @onclick="() => _confirming = false">Cancel</button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-primary" disabled="@(_busy || _review.Changes == 0)" @onclick="() => _confirming = true">
+                        Issue / update @_review.Changes invoice@(_review.Changes == 1 ? "" : "s")
+                    </button>
+                }
+                <a class="btn btn-secondary" href="/admin/invoices/trips">Back to trip sign-ups</a>
+            </div>
+        }
+        else
+        {
+            <a class="btn btn-secondary" href="/admin/invoices/trips">Back to trip sign-ups</a>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _canWrite;
+    private bool _confirming;
+    private string _actor = "unknown";
+    private string? _error;
+    private string? _message;
+    private TripReview? _review;
+    private List<ScoutEntity> _scouts = [];
+    private List<GuardianEntity> _guardians = [];
+
+    private IEnumerable<(string Id, string Name)> Candidates(TripImportLineEntity line) =>
+        (line.IsAdult
+            ? _guardians.Where(g => g.IsActive).Select(g => (g.GuardianId, g.FullName))
+            : _scouts.Where(s => s.IsActive).Select(s => (s.ScoutId, s.FullName)))
+        .OrderBy(p => p.Item2, StringComparer.CurrentCultureIgnoreCase);
+
+    private static string ActionLabel(TripLineAction action) => action switch
+    {
+        TripLineAction.Issue => "Will issue",
+        TripLineAction.Void => "Will void",
+        TripLineAction.Reissue => "Will void and reissue",
+        TripLineAction.NeedsMatch => "Needs a match",
+        TripLineAction.NeedsAttention => "Needs you",
+        TripLineAction.NoCharge => "No charge",
+        TripLineAction.NotBilled => "Not billed",
+        _ => "Up to date",
+    };
+
+    private static string ActionBadge(TripLineAction action) => action switch
+    {
+        TripLineAction.Issue or TripLineAction.Void or TripLineAction.Reissue => "badge-pending",
+        TripLineAction.NeedsMatch or TripLineAction.NeedsAttention => "badge-rejected",
+        TripLineAction.UpToDate => "badge-approved",
+        _ => "badge-voided",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthStateTask is null ? null : (await AuthStateTask).User;
+        _canWrite = user?.IsTroopFinanceWriter() ?? false;
+        _actor = user?.Identity?.Name ?? "unknown";
+        _scouts = (await ScoutRepository.GetAllAsync()).ToList();
+        _guardians = (await GuardianRepository.GetAllAsync()).ToList();
+        _review = await SignInApp.GetReviewAsync(Id);
+        _loading = false;
+    }
+
+    private async Task RunAsync(Func<Task<string?>> action)
+    {
+        if (_busy || !_canWrite)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            _message = await action();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save that. Please try again.";
+        }
+        finally
+        {
+            _review = await SignInApp.GetReviewAsync(Id);
+            _confirming = false;
+            _busy = false;
+        }
+    }
+
+    private Task MatchAsync(TripImportLineEntity line, string? financeId) => RunAsync(async () =>
+    {
+        if (financeId is not null && financeId.Length == 0)
+        {
+            return null;
+        }
+
+        await SignInApp.SetManualMatchAsync(Id, line.EntryId, financeId, _actor);
+        return financeId is null ? $"{line.Name} is no longer matched." : $"Matched {line.Name} for this trip.";
+    });
+
+    private Task ApplyAsync() => RunAsync(async () =>
+    {
+        var changed = await SignInApp.ApplyAsync(Id, _actor);
+        return $"Updated {changed} invoice{(changed == 1 ? "" : "s")}.";
+    });
+}

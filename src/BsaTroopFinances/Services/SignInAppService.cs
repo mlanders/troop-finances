@@ -359,13 +359,34 @@ public sealed class SignInAppService(
         return (TripLineAction.Issue, string.Empty);
     }
 
-    /// <summary>Matches one line by hand (a typed-in name, usually), or with null clears it.</summary>
-    public async Task SetManualMatchAsync(string signUpId, string entryId, string? financeId)
+    /// <summary>
+    /// Matches one line by hand (a typed-in name, usually) to a finance scout, or guardian for an
+    /// Adult; with null clears it. It's for this trip only: it never becomes a roster link.
+    /// </summary>
+    public async Task SetManualMatchAsync(string signUpId, string entryId, string? financeId, string actor)
     {
-        var line = await repository.GetLineAsync(signUpId, entryId)
-            ?? throw new InvalidOperationException("That person isn't on the trip any more.");
-        line.ManualMatchId = string.IsNullOrWhiteSpace(financeId) ? null : financeId;
-        await repository.SaveLineAsync(line);
+        await unitOfWork.InTransactionAsync(async () =>
+        {
+            var line = await repository.GetLineAsync(signUpId, entryId)
+                ?? throw new InvalidOperationException("That person isn't on the trip any more.");
+            financeId = string.IsNullOrWhiteSpace(financeId) ? null : financeId;
+            string? name = null;
+            if (financeId is not null)
+            {
+                name = line.IsAdult
+                    ? (await guardians.GetByIdAsync(financeId))?.FullName
+                    : (await scouts.GetByIdAsync(financeId))?.FullName;
+                if (name is null)
+                {
+                    throw new InvalidOperationException(line.IsAdult ? "That guardian wasn't found." : "That scout wasn't found.");
+                }
+            }
+
+            line.ManualMatchId = financeId;
+            await repository.SaveLineAsync(line);
+            await audit.AddAsync(FinanceAuditEntityType.TripImport, signUpId, name is null ? "Unmatched" : "Matched by hand", actor,
+                details: name is null ? $"{line.Name} is no longer matched on this trip." : $"{line.Name} is {name} on this trip.");
+        });
     }
 
     /// <summary>
@@ -416,8 +437,22 @@ public sealed class SignInAppService(
         trip.LastAppliedUtc = timeProvider.GetUtcNow();
         trip.LastAppliedBy = actor;
         await repository.SaveTripAsync(trip);
+        if (changed > 0)
+        {
+            // Each invoice issued or voided has its own entry already; this one ties them to the trip.
+            await audit.AddAsync(FinanceAuditEntityType.TripImport, signUpId, "Invoices updated", actor,
+                details: $"{trip.Title}: {changed} invoice{(changed == 1 ? "" : "s")} issued, voided or reissued.");
+        }
+
         return changed;
     }
+
+    /// <summary>
+    /// Sign-in people still to sort out: on the sign-in roster, neither linked nor marked not billed.
+    /// They're shown on the dashboard until the treasurer links them.
+    /// </summary>
+    public async Task<int> CountUnlinkedAsync() =>
+        (await repository.GetPeopleAsync()).Count(p => p.IsActiveInSignIn && !p.IsLinked && !p.NotBilled);
 
     /// <summary>How many trips have lines waiting on the treasurer: changes to apply, or people to match.</summary>
     public async Task<int> CountTripsNeedingReviewAsync()

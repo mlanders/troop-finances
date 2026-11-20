@@ -1,0 +1,256 @@
+@page "/admin/families/signin-links"
+@rendermode InteractiveServer
+@inject SignInAppService SignInApp
+@inject IScoutRepository ScoutRepository
+@inject IGuardianRepository GuardianRepository
+@inject IConfiguration Configuration
+@using BsaTroopFinances.Data.Entities
+@using BsaTroopFinances.Data.Repositories
+@using BsaTroopFinances.Services
+
+<PageTitle>Sign-in app links</PageTitle>
+
+<h1>Sign-in app links</h1>
+<p class="hint">
+    Everyone on the meeting sign-in app's roster, and which scout or guardian they are here. Link each
+    person once: every trip they sign up for then finds their account by itself, even after a rename
+    in either app. Mark visitors and anyone the troop doesn't charge as not billed.
+</p>
+
+@if (SignInAppApi.Key(Configuration) is null)
+{
+    <div class="alert alert-warning">The sign-in app can't send anything yet: set <code>SignInApp:ApiKey</code> (32 characters or more) and give the same key to the sign-in app.</div>
+}
+
+@if (_loading)
+{
+    <p>Loading&hellip;</p>
+}
+else
+{
+    <div class="card">
+        <div class="row-actions" role="group" aria-label="Show">
+            @foreach (var (filter, label) in Filters)
+            {
+                <button type="button" class="btn btn-sm @(_filter == filter ? "btn-primary" : "btn-secondary")" aria-pressed="@(_filter == filter ? "true" : "false")"
+                        @onclick="() => _filter = filter">@label (@Count(filter))</button>
+            }
+        </div>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger" role="alert">@_error</div>
+        }
+        @if (_message is not null)
+        {
+            <div class="alert alert-success" role="status">@_message</div>
+        }
+
+        @if (_canWrite && _filter == LinkFilter.Unlinked && Suggested.Count > 0)
+        {
+            <p>
+                <button type="button" class="btn btn-secondary" disabled="@_busy" @onclick="LinkSuggestedAsync">
+                    <i class="fa-solid fa-link" aria-hidden="true"></i> Link all @Suggested.Count suggested
+                </button>
+                <span class="hint">Each suggestion is the only active scout or guardian here with that name. Check them first.</span>
+            </p>
+        }
+
+        @if (Shown.Count == 0)
+        {
+            <p class="hint">@(_rows.Count == 0 ? "The sign-in app hasn't sent its roster yet." : "Nobody here.")</p>
+        }
+        else
+        {
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Sign-in app roster">
+                <table class="report-table signin-links">
+                    <thead><tr><th>In the sign-in app</th><th>Here</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var row in Shown)
+                        {
+                            var person = row.Person;
+                            <tr @key="person.PersonId">
+                                <td>
+                                    @person.FullName
+                                    <br /><span class="hint">@(person.IsAdult ? "Adult" : "Scout")@(person.IsActiveInSignIn ? "" : " · no longer on the sign-in roster")</span>
+                                </td>
+                                <td>
+                                    @if (row.LinkedName is not null)
+                                    {
+                                        <span class="badge badge-approved"><i class="fa-solid fa-link" aria-hidden="true"></i> @row.LinkedName</span>
+                                    }
+                                    else if (person.NotBilled)
+                                    {
+                                        <span class="badge badge-voided">Not billed</span>
+                                    }
+                                    else if (_canWrite)
+                                    {
+                                        <select aria-label="@($"Who {person.FullName} is here")" value="@Picked(row)" @onchange="e => _picks[person.PersonId] = e.Value?.ToString() ?? string.Empty">
+                                            <option value="">Pick @(person.IsAdult ? "a guardian" : "a scout")&hellip;</option>
+                                            @foreach (var (id, name, takenBy) in Candidates(person))
+                                            {
+                                                <option value="@id" disabled="@(takenBy is not null)">@name@(takenBy is null ? "" : $" (linked to {takenBy})")@(id == row.SuggestedId ? " — suggested" : "")</option>
+                                            }
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-pending">Not linked</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (_canWrite)
+                                    {
+                                        <div class="row-actions">
+                                            @if (person.IsLinked || person.NotBilled)
+                                            {
+                                                <button type="button" class="btn btn-secondary btn-sm" disabled="@_busy" @onclick="() => LinkAsync(person, null, notBilled: false)">@(person.NotBilled ? "Bill them" : "Unlink")</button>
+                                            }
+                                            else
+                                            {
+                                                <button type="button" class="btn btn-primary btn-sm" disabled="@(_busy || Picked(row).Length == 0)" @onclick="() => LinkAsync(person, Picked(row), notBilled: false)">Link</button>
+                                                <button type="button" class="btn btn-secondary btn-sm" disabled="@_busy" @onclick="() => LinkAsync(person, null, notBilled: true)">Not billed</button>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    private enum LinkFilter { Unlinked, Linked, Gone, All }
+
+    private static readonly (LinkFilter, string)[] Filters =
+    [
+        (LinkFilter.Unlinked, "Unlinked"), (LinkFilter.Linked, "Linked"), (LinkFilter.Gone, "No longer on the sign-in roster"), (LinkFilter.All, "All"),
+    ];
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _canWrite;
+    private string _actor = "unknown";
+    private string? _error;
+    private string? _message;
+    private LinkFilter _filter = LinkFilter.Unlinked;
+    private IReadOnlyList<SignInPersonRow> _rows = [];
+    private List<ScoutEntity> _scouts = [];
+    private List<GuardianEntity> _guardians = [];
+
+    // What's picked in each unlinked person's list, by PersonId; their suggestion until changed.
+    private readonly Dictionary<string, string> _picks = [];
+
+    private static bool Matches(SignInPersonRow row, LinkFilter filter) => filter switch
+    {
+        LinkFilter.Unlinked => row.Person.IsActiveInSignIn && !row.Person.IsLinked && !row.Person.NotBilled,
+        LinkFilter.Linked => row.Person.IsActiveInSignIn && (row.Person.IsLinked || row.Person.NotBilled),
+        LinkFilter.Gone => !row.Person.IsActiveInSignIn,
+        _ => true,
+    };
+
+    private List<SignInPersonRow> Shown => _rows.Where(r => Matches(r, _filter))
+        .OrderBy(r => r.Person.IsAdult).ThenBy(r => r.Person.FullName, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    private int Count(LinkFilter filter) => _rows.Count(r => Matches(r, filter));
+
+    private List<SignInPersonRow> Suggested => _rows.Where(r => Matches(r, LinkFilter.Unlinked) && r.SuggestedId is not null).ToList();
+
+    private string Picked(SignInPersonRow row) => _picks.GetValueOrDefault(row.Person.PersonId) ?? row.SuggestedId ?? string.Empty;
+
+    // Active scouts (or guardians for an adult), with who in the sign-in app each is already linked to.
+    private IEnumerable<(string Id, string Name, string? TakenBy)> Candidates(SignInPersonEntity person)
+    {
+        var taken = _rows.Where(r => r.Person.IsAdult == person.IsAdult && r.Person.LinkedId is not null)
+            .ToDictionary(r => r.Person.LinkedId!, r => r.Person.FullName);
+        var people = person.IsAdult
+            ? _guardians.Where(g => g.IsActive).Select(g => (g.GuardianId, g.FullName))
+            : _scouts.Where(s => s.IsActive).Select(s => (s.ScoutId, s.FullName));
+        return people.OrderBy(p => p.Item2, StringComparer.CurrentCultureIgnoreCase)
+            .Select(p => (p.Item1, p.Item2, taken.GetValueOrDefault(p.Item1)));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthStateTask is null ? null : (await AuthStateTask).User;
+        _canWrite = user?.IsTroopFinanceWriter() ?? false;
+        _actor = user?.Identity?.Name ?? "unknown";
+        _scouts = (await ScoutRepository.GetAllAsync()).ToList();
+        _guardians = (await GuardianRepository.GetAllAsync()).ToList();
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync() => _rows = await SignInApp.GetPeopleAsync();
+
+    private async Task LinkAsync(SignInPersonEntity person, string? financeId, bool notBilled)
+    {
+        if (_busy || !_canWrite)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            await SignInApp.LinkAsync(person.PersonId, financeId, notBilled, _actor);
+            _picks.Remove(person.PersonId);
+            _message = notBilled ? $"{person.FullName} won't be billed."
+                : financeId is null ? $"{person.FullName} is no longer linked."
+                : $"Linked {person.FullName}.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't save that. Please try again.";
+        }
+        finally
+        {
+            await LoadAsync();
+            _busy = false;
+        }
+    }
+
+    private async Task LinkSuggestedAsync()
+    {
+        if (_busy || !_canWrite)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _message = null;
+        var linked = 0;
+        var problems = new List<string>();
+        foreach (var row in Suggested)
+        {
+            try
+            {
+                await SignInApp.LinkAsync(row.Person.PersonId, row.SuggestedId, notBilled: false, _actor);
+                linked++;
+            }
+            catch (InvalidOperationException ex)
+            {
+                problems.Add(ex.Message);
+            }
+        }
+
+        await LoadAsync();
+        _message = linked > 0 ? $"Linked {linked}." : null;
+        _error = problems.Count > 0 ? string.Join(" ", problems) : null;
+        _busy = false;
+    }
+}
