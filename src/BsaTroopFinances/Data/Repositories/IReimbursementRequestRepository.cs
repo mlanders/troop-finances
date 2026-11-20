@@ -41,6 +41,9 @@ public interface IReimbursementRequestRepository
     /// <summary>Requests tied to one scout.</summary>
     Task<IReadOnlyList<ReimbursementRequestEntity>> GetByScoutAsync(string scoutId);
 
+    /// <summary>Requests the sign-in app asked for whose SourceRef starts with this, e.g. one trip's fuel paybacks.</summary>
+    Task<IReadOnlyList<ReimbursementRequestEntity>> GetBySourcePrefixAsync(string prefix);
+
     /// <summary>How many requests have this status and their total amount.</summary>
     Task<(int Count, decimal Total)> GetStatusSummaryAsync(string status);
 }

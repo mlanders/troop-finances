@@ -37,7 +37,12 @@ else
                 {
                     <p><strong>Scout:</strong> @_request.ScoutName</p>
                 }
-                <p><strong>Amount:</strong> <span class="money">@_request.AmountRequested.ToString("C")</span></p>
+                <p><strong>Amount:</strong> <span class="money">@_request.AmountRequested.ToString("C")</span>
+                    @if (_request.SourceAmount is { } estimate)
+                    {
+                        <span class="hint">@(estimate == _request.AmountRequested ? "(the sign-in app's estimate: change it below if needed)" : $"(changed from the sign-in app's {estimate:C})")</span>
+                    }
+                </p>
                 <p><strong>Description:</strong> @_request.Description</p>
                 <p><strong>Submitted:</strong> @_request.SubmittedUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</p>
                 <p><strong>Status:</strong> <span class="badge badge-@_request.StatusValue.ToLowerInvariant()">@_request.StatusValue</span></p>
@@ -52,10 +57,20 @@ else
                 }
             </div>
 
-            <a class="receipt-preview" href="@ReceiptUrl" target="_blank" rel="noopener" title="Open receipt: @_request.ReceiptOriginalFileName" aria-label="Open receipt @_request.ReceiptOriginalFileName in a new tab">
-                <img src="@ThumbnailUrl" alt="Receipt preview" />
-                <span class="receipt-preview-label">View receipt</span>
-            </a>
+            @if (_request.HasReceipt)
+            {
+                <a class="receipt-preview" href="@ReceiptUrl" target="_blank" rel="noopener" title="Open receipt: @_request.ReceiptOriginalFileName" aria-label="Open receipt @_request.ReceiptOriginalFileName in a new tab">
+                    <img src="@ThumbnailUrl" alt="Receipt preview" />
+                    <span class="receipt-preview-label">View receipt</span>
+                </a>
+            }
+            else
+            {
+                <div class="receipt-preview receipt-none">
+                    <i class="fa-solid fa-gas-pump" aria-hidden="true"></i>
+                    <span class="receipt-preview-label">@(_request.IsFuelPayback ? "Fuel payback from the sign-in app: worked out from the miles, no receipt" : "No receipt")</span>
+                </div>
+            }
         </div>
     </div>
 

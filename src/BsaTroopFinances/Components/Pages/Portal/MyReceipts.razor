@@ -67,10 +67,20 @@ else
                     }
                 </div>
 
-                <a class="receipt-preview" href="@($"/portal/reimbursements/{request.RequestId}/receipt")" target="_blank" rel="noopener" title="View receipt" aria-label="View receipt">
-                    <img src="@($"/portal/reimbursements/{request.RequestId}/thumbnail")" alt="Receipt preview" loading="lazy" width="213" height="213" />
-                    <span class="receipt-preview-label">View receipt</span>
-                </a>
+                @if (request.HasReceipt)
+                {
+                    <a class="receipt-preview" href="@($"/portal/reimbursements/{request.RequestId}/receipt")" target="_blank" rel="noopener" title="View receipt" aria-label="View receipt">
+                        <img src="@($"/portal/reimbursements/{request.RequestId}/thumbnail")" alt="Receipt preview" loading="lazy" width="213" height="213" />
+                        <span class="receipt-preview-label">View receipt</span>
+                    </a>
+                }
+                else
+                {
+                    <div class="receipt-preview receipt-none">
+                        <i class="fa-solid fa-gas-pump" aria-hidden="true"></i>
+                        <span class="receipt-preview-label">@(request.IsFuelPayback ? "Fuel for driving: no receipt needed" : "No receipt")</span>
+                    </div>
+                }
             </div>
         </div>
     }
