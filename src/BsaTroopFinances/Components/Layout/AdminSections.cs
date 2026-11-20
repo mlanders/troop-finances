@@ -23,6 +23,7 @@ public static class AdminSections
             new("Invoices", "/admin/invoices"),
             new("Record family payment", "/admin/invoices/family-payment", WritersOnly: true),
             new("Invoice all active scouts", "/admin/invoices/bulk", WritersOnly: true),
+            new("Trip sign-ups", "/admin/invoices/trips", WritersOnly: true),
         ]),
         new("Fundraising", "/admin/fundraisers",
         [
@@ -34,6 +35,7 @@ public static class AdminSections
             new("Families", "/admin/families"),
             new("Scouts", "/admin/scouts"),
             new("Guardians", "/admin/guardians"),
+            new("Sign-in app links", "/admin/families/signin-links"),
         ]),
         new("Bank", "/admin/bank",
         [

@@ -360,3 +360,26 @@ deletes what it stops declaring, so remove it by hand after the new path is prov
    ```bash
    az sql server firewall-rule create -g <resource-group> -s <sql-server> -n AllowAllWindowsAzureIps --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
    ```
+
+## 10. The meeting sign-in app (trip sign-ups)
+
+The troop's meeting sign-in app sends its roster and its trips here, takes trip payments at
+meetings, and reads back who has paid. It talks to `/api/signin/...` with a shared key; nothing
+it sends issues or voids an invoice by itself. The code is in `Services/SignInAppApi.cs` and
+`Services/SignInAppService.cs`.
+
+1. **Make a key** of at least 32 characters, e.g.
+   `[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`. Treat it
+   like a password.
+2. **Give this app the key** (this restarts it):
+   ```powershell
+   az webapp config appsettings set --resource-group <resource-group> --name <web-app> --settings "SignInApp__ApiKey=<the key>"
+   ```
+3. **Give the sign-in app this site's address and the same key** as `Finance__BaseUrl` and
+   `Finance__ApiKey` (see that repo's `infra/DEPLOY.md`, section 7).
+
+Without the key (or with a shorter one) the API isn't there at all. Once the sign-in app has sent
+its roster, link everyone once on **Families → Sign-in app links** (each suggestion is the one
+active scout or guardian with the same name; check it before linking), and mark visitors as not
+billed. Trips then show up on **Invoices → Trip sign-ups**, where you match anyone still unknown
+and issue the invoices. The dashboard says when people need linking or a trip needs review.
