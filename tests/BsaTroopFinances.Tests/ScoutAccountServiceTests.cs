@@ -121,6 +121,24 @@ public class ScoutAccountServiceTests
             (entry.EntryTypeValue, entry.Amount, entry.SourceTypeValue, entry.Description, entry.CreatedBy));
     }
 
+    [Theory]
+    [InlineData(25, "Credited $25.00 to Alex Rivera.")]
+    [InlineData(-25, "Debited $25.00 from Alex Rivera.")]
+    public async Task A_manual_adjustment_is_in_the_activity_history_with_its_reason(decimal amount, string details)
+    {
+        await _service.ApplyManualAdjustmentAsync("alex", amount, "Correcting a duplicate", "Pat");
+
+        await _audit.Received(1).AddAsync(FinanceAuditEntityType.Scout, "alex", "Manual Adjustment", "Pat", "Correcting a duplicate", details);
+    }
+
+    [Fact]
+    public async Task A_refused_manual_adjustment_leaves_no_history()
+    {
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _service.ApplyManualAdjustmentAsync("alex", 0, "Nothing", "Pat"));
+
+        await _audit.DidNotReceiveWithAnyArgs().AddAsync(default!, default!, default!, default!, default, default);
+    }
+
     [Fact]
     public async Task A_manual_adjustment_may_take_a_balance_below_zero()
     {
