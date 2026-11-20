@@ -56,6 +56,25 @@ public class ReimbursementRequestEntity
 
     public string RequestId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Set when the meeting sign-in app asked for this, not a person: "fuel:{signUpId}:{entryId}"
+    /// for a driver's fuel payback (see SignInAppService.ReceiveFuelAsync). Such a request has no
+    /// receipt: the amount is worked out from the miles, and the treasurer can change it.
+    /// </summary>
+    public string? SourceRef { get; set; }
+
+    /// <summary>What the sign-in app last asked for. When AmountRequested differs, the treasurer
+    /// changed it, and a later send from the sign-in app leaves it alone.</summary>
+    public decimal? SourceAmount { get; set; }
+
+    public bool HasReceipt => !string.IsNullOrEmpty(ReceiptBlobPath);
+
+    public bool IsFuelPayback => SourceRef?.StartsWith(FuelSourcePrefix, StringComparison.Ordinal) == true;
+
+    public const string FuelSourcePrefix = "fuel:";
+
+    public static string FuelSourceRef(string signUpId, string entryId) => $"{FuelSourcePrefix}{signUpId}:{entryId}";
+
     public static string BuildPartitionKey(string guardianId) => guardianId;
 
     public static string NewRowKey() => $"{DateTimeOffset.UtcNow.Ticks:D19}-{Guid.NewGuid():N}";

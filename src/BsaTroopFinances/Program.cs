@@ -234,6 +234,7 @@ builder.Services.AddScoped<ISignInAppRepository, SignInAppRepository>();
 // ---- App services ----
 builder.Services.AddScoped<IScoutAccountService, ScoutAccountService>();
 builder.Services.AddScoped<SignInAppService>();
+builder.Services.AddScoped<SignInFuelService>();
 builder.Services.AddScoped<IDonationService, DonationService>();
 builder.Services.AddScoped<ITroopAccountService, TroopAccountService>();
 builder.Services.AddScoped<IReimbursementService, ReimbursementService>();

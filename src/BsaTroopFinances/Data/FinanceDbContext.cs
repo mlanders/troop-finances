@@ -170,6 +170,9 @@ public class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbCo
             e.HasIndex(r => r.SubmittedUtc);
             e.HasIndex(r => r.PaidUtc);
             e.HasIndex(r => r.ScoutId);
+            e.Property(r => r.SourceRef).HasMaxLength(200);
+            // One fuel payback per driver per trip, however often the sign-in app sends it.
+            e.HasIndex(r => r.SourceRef).IsUnique();
         });
 
         model.Entity<InvoiceEntity>(e =>

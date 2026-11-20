@@ -78,6 +78,10 @@ public class ReimbursementRequestRepository(FinanceDb db) : IReimbursementReques
     public async Task<IReadOnlyList<ReimbursementRequestEntity>> GetByScoutAsync(string scoutId) =>
         await db.ReadAsync(async c => await c.ReimbursementRequests.AsNoTracking().Where(r => r.ScoutId == scoutId).ToListAsync());
 
+    public async Task<IReadOnlyList<ReimbursementRequestEntity>> GetBySourcePrefixAsync(string prefix) =>
+        await db.ReadAsync(async c => await c.ReimbursementRequests.AsNoTracking()
+            .Where(r => r.SourceRef != null && r.SourceRef.StartsWith(prefix)).ToListAsync());
+
     public async Task<(int Count, decimal Total)> GetStatusSummaryAsync(string status) =>
         await db.ReadAsync(async c =>
         {

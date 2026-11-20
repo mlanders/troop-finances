@@ -1099,6 +1099,14 @@ namespace BsaTroopFinances.Data.PostgresMigrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<decimal?>("SourceAmount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<string>("StatusValue")
                         .IsRequired()
                         .HasMaxLength(400)
@@ -1140,6 +1148,9 @@ namespace BsaTroopFinances.Data.PostgresMigrations
                         .IsUnique();
 
                     b.HasIndex("ScoutId");
+
+                    b.HasIndex("SourceRef")
+                        .IsUnique();
 
                     b.HasIndex("SubmittedUtc");
 

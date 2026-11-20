@@ -2585,3 +2585,20 @@ table.report-table tr.total-row td {
         font-size: 1rem;
     }
 }
+
+/* Where a receipt's preview would go, for a reimbursement with none (a driver's fuel payback). */
+.receipt-preview.receipt-none {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 8rem;
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted, #57677a);
+}
+
+.receipt-preview.receipt-none .fa-solid {
+    font-size: 2rem;
+}

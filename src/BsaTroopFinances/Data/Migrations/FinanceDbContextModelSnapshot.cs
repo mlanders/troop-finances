@@ -1082,6 +1082,14 @@ namespace BsaTroopFinances.Data.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("nvarchar(400)");
 
+                    b.Property<decimal?>("SourceAmount")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("StatusValue")
                         .IsRequired()
                         .HasMaxLength(400)
@@ -1122,6 +1130,10 @@ namespace BsaTroopFinances.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex("ScoutId");
+
+                    b.HasIndex("SourceRef")
+                        .IsUnique()
+                        .HasFilter("[SourceRef] IS NOT NULL");
 
                     b.HasIndex("SubmittedUtc");
 

@@ -13,6 +13,9 @@ namespace BsaTroopFinances.Services;
 /// <item>POST /api/signin/trips/{signUpId}/payments: a TripPaymentUpload. 200 when recorded (or
 /// already recorded), 404 when the trip or person isn't here, 409 when their invoice isn't issued
 /// yet, 422 when it can't be recorded (e.g. more than is owed), each with a message.</item>
+/// <item>PUT /api/signin/trips/{signUpId}/fuel: a FuelUpload of drivers after the trip, set up as
+/// pending reimbursements (SignInFuelService); 200 with a FuelLineStatusDto for each driver.</item>
+/// <item>GET /api/signin/trips/{signUpId}/fuel: a FuelLineStatusDto for each driver set up.</item>
 /// </list>
 /// </summary>
 public static class SignInAppApi
@@ -70,6 +73,21 @@ public static class SignInAppApi
 
         api.MapGet("/trips/{signUpId}/status", async (string signUpId, SignInAppService service) =>
             Results.Ok(await service.GetStatusAsync(signUpId)));
+
+        api.MapPut("/trips/{signUpId}/fuel", async (string signUpId, FuelUpload fuel, SignInFuelService service) =>
+        {
+            try
+            {
+                return Results.Ok(await service.ReceiveFuelAsync(signUpId, fuel));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
+        });
+
+        api.MapGet("/trips/{signUpId}/fuel", async (string signUpId, SignInFuelService service) =>
+            Results.Ok(await service.GetFuelStatusAsync(signUpId)));
 
         api.MapPost("/trips/{signUpId}/payments", async (string signUpId, TripPaymentUpload payment, SignInAppService service) =>
         {
