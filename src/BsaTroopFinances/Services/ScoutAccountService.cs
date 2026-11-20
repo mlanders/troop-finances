@@ -445,6 +445,10 @@ public class ScoutAccountService(
             // Deliberately bypasses the clamping IssueInvoiceAsync/ApplyFundraiserAllocationAsync
             // apply -- this is the one intentional way a balance can go negative.
             await ledgerRepository.AppendEntryAsync(entry);
+
+            var scout = await scoutRepository.GetByIdAsync(scoutId);
+            await auditRepository.AddAsync(FinanceAuditEntityType.Scout, scoutId, "Manual Adjustment", createdBy, reason,
+                $"{(amount > 0 ? "Credited" : "Debited")} {Math.Abs(amount):C} {(amount > 0 ? "to" : "from")} {scout?.FullName ?? scoutId}.");
         });
     }
 
