@@ -225,4 +225,82 @@ public class SqlTroopAccountTests(SqlTestDatabase sql) : IClassFixture<SqlTestDa
         Assert.Equal(0m, reopened.Difference);   // still ticked, ready to finish again
         await service.DeleteEntryAsync(checking.AccountId, fee.RowKey, "Pat");
     }
+
+    [SkippableFact]
+    public async Task Editing_an_entry_keeps_which_way_the_money_went_and_moves_the_balance()
+    {
+        var service = await ServiceAsync();
+        var checking = await service.AddAccountAsync("Checking", TroopAccountKind.Bank, 1000, Opening, "Pat");
+        var expense = await service.RecordEntryAsync(checking.AccountId, TroopTransactionKind.Expense, new(2026, 2, 1), 120, "Scout Shop", "Patches", "301", null, "Pat");
+        var income = await service.RecordEntryAsync(checking.AccountId, TroopTransactionKind.OtherIncome, new(2026, 2, 2), 50, "Council", "Refund", "", null, "Pat");
+
+        await service.UpdateEntryAsync(checking.AccountId, expense.RowKey, new(2026, 2, 3), 95, " Scout Shop ", "Rank patches", "302", null, "Pat");
+        await service.UpdateEntryAsync(checking.AccountId, income.RowKey, new(2026, 2, 2), 60, "Council", "Refund", "", null, "Pat");
+
+        var edited = (await Bank.GetTransactionAsync(checking.AccountId, expense.RowKey))!;
+        Assert.Equal((-95m, "Scout Shop", "Rank patches", "302", new DateTimeOffset(2026, 2, 3, 0, 0, 0, TimeSpan.Zero)),
+            (edited.Amount, edited.Payee, edited.Description, edited.Reference, edited.Date));
+        Assert.Equal(60m, (await Bank.GetTransactionAsync(checking.AccountId, income.RowKey))!.Amount);
+        Assert.Equal(965m, await BalanceAsync(service, checking.AccountId));
+    }
+
+    [SkippableFact]
+    public async Task A_transfer_cant_be_edited_and_a_reconciled_entry_cant_be_edited()
+    {
+        var service = await ServiceAsync();
+        var checking = await service.AddAccountAsync("Checking", TroopAccountKind.Bank, 1000, Opening, "Pat");
+        var venmo = await service.AddAccountAsync("Venmo", TroopAccountKind.Venmo, 50, Opening, "Pat");
+        await service.TransferAsync(venmo.AccountId, checking.AccountId, new(2026, 1, 5), 40, "", "Pat");
+        var half = (await Bank.GetTransactionsAsync(checking.AccountId)).Single();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateEntryAsync(checking.AccountId, half.RowKey, new(2026, 1, 5), 400, "", "Transfer", "", null, "Pat"));
+
+        var fee = await service.RecordEntryAsync(checking.AccountId, TroopTransactionKind.BankFee, new(2026, 1, 31), 5, "", "Monthly fee", "", null, "Pat");
+        var reconciliation = await service.StartReconciliationAsync(checking.AccountId, new(2026, 1, 31), 1035, "Pat");
+        await service.SetClearedAsync(checking.AccountId, reconciliation.ReconciliationId, new HashSet<string> { half.RowKey, fee.RowKey });
+        await service.FinishReconciliationAsync(checking.AccountId, reconciliation.ReconciliationId, "Pat");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateEntryAsync(checking.AccountId, fee.RowKey, new(2026, 1, 31), 50, "", "Monthly fee", "", null, "Pat"));
+        Assert.Equal(-5m, (await Bank.GetTransactionAsync(checking.AccountId, fee.RowKey))!.Amount);
+        Assert.Equal(40m, (await Bank.GetTransactionAsync(checking.AccountId, half.RowKey))!.Amount);
+    }
+
+    [SkippableFact]
+    public async Task An_account_can_be_renamed_and_made_inactive_but_not_given_another_accounts_name()
+    {
+        var service = await ServiceAsync();
+        var checking = await service.AddAccountAsync("Checking", TroopAccountKind.Bank, 1000, Opening, "Pat");
+        await service.AddAccountAsync("Savings", TroopAccountKind.Bank, 0, Opening, "Pat");
+
+        var account = (await Bank.GetAccountAsync(checking.AccountId))!;
+        account.Name = "  Main checking ";
+        account.IsActive = false;
+        await service.UpdateAccountAsync(account, "Pat");
+        var saved = (await Bank.GetAccountAsync(checking.AccountId))!;
+        Assert.Equal(("Main checking", false), (saved.Name, saved.IsActive));
+
+        saved.Name = "SAVINGS";
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAccountAsync(saved, "Pat"));
+        Assert.Contains("already an account called", refused.Message);
+        Assert.Equal("Main checking", (await Bank.GetAccountAsync(checking.AccountId))!.Name);
+    }
+
+    [SkippableFact]
+    public async Task Cancelling_a_reconciliation_removes_it_so_another_can_start_and_a_finished_one_cant_be_cancelled()
+    {
+        var service = await ServiceAsync();
+        var checking = await service.AddAccountAsync("Checking", TroopAccountKind.Bank, 1000, Opening, "Pat");
+        var first = await service.StartReconciliationAsync(checking.AccountId, new(2026, 1, 31), 1000, "Pat");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartReconciliationAsync(checking.AccountId, new(2026, 1, 31), 1000, "Pat"));
+
+        await service.CancelReconciliationAsync(checking.AccountId, first.ReconciliationId, "Pat");
+
+        Assert.Empty(await Bank.GetReconciliationsAsync(checking.AccountId));
+        var second = await service.StartReconciliationAsync(checking.AccountId, new(2026, 1, 31), 1000, "Pat");
+        await service.FinishReconciliationAsync(checking.AccountId, second.ReconciliationId, "Pat");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelReconciliationAsync(checking.AccountId, second.ReconciliationId, "Pat"));
+        Assert.Equal(ReconciliationStatus.Complete, Assert.Single(await Bank.GetReconciliationsAsync(checking.AccountId)).Status);
+    }
 }
