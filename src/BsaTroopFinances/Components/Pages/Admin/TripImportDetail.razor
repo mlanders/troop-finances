@@ -109,11 +109,15 @@ else
                                 }
                             </td>
                             <td>
-                                @if (item.Invoice is { } invoice)
+                                @if (item.Invoices.Count > 0)
                                 {
-                                    <a href="@($"/admin/invoices/{invoice.InvoiceId}?scoutId={Uri.EscapeDataString(invoice.OwnerId)}")">
-                                        <span class="badge badge-@invoice.StatusValue.ToLowerInvariant()">@invoice.StatusValue</span>
-                                    </a>
+                                    @foreach (var invoice in item.Invoices)
+                                    {
+                                        <a href="@($"/admin/invoices/{invoice.InvoiceId}?scoutId={Uri.EscapeDataString(invoice.OwnerId)}")"
+                                           title="@(invoice == item.Invoice ? "Trip invoice" : "Top-up")">
+                                            <span class="badge badge-@invoice.StatusValue.ToLowerInvariant()">@(invoice == item.Invoice ? "" : $"Top-up {invoice.TotalAmount:C}: ")@invoice.StatusValue</span>
+                                        </a>
+                                    }
                                     @if (item.PaidSoFar > 0)
                                     {
                                         <br /><span class="hint">@item.PaidSoFar.ToString("C") paid</span>
@@ -142,7 +146,7 @@ else
             <div class="row-actions" style="margin-top:0.75rem;">
                 @if (_confirming)
                 {
-                    <span>Issue, void and reissue @_review.Changes invoice@(_review.Changes == 1 ? "" : "s") now? New invoices email the family, as any invoice does when those emails are on.</span>
+                    <span>Make the @_review.Changes invoice change@(_review.Changes == 1 ? "" : "s") marked above now? New invoices email the family, as any invoice does when those emails are on.</span>
                     <button type="button" class="btn btn-primary" disabled="@_busy" @onclick="ApplyAsync">Yes, update the invoices</button>
                     <button type="button" class="btn btn-secondary" @onclick="() => _confirming = false">Cancel</button>
                 }
@@ -190,6 +194,7 @@ else
         TripLineAction.Issue => "Will issue",
         TripLineAction.Void => "Will void",
         TripLineAction.Reissue => "Will void and reissue",
+        TripLineAction.TopUp => "Will issue a top-up",
         TripLineAction.NeedsMatch => "Needs a match",
         TripLineAction.NeedsAttention => "Needs you",
         TripLineAction.NoCharge => "No charge",
@@ -199,7 +204,7 @@ else
 
     private static string ActionBadge(TripLineAction action) => action switch
     {
-        TripLineAction.Issue or TripLineAction.Void or TripLineAction.Reissue => "badge-pending",
+        TripLineAction.Issue or TripLineAction.Void or TripLineAction.Reissue or TripLineAction.TopUp => "badge-pending",
         TripLineAction.NeedsMatch or TripLineAction.NeedsAttention => "badge-rejected",
         TripLineAction.UpToDate => "badge-approved",
         _ => "badge-voided",
