@@ -234,4 +234,107 @@ public class TripTopUpTests
 
         await _accounts.Received(1).RecordInvoicePaymentAsync("s-sam", "inv1", 500, InvoicePaymentMethod.Cash, null, "Leader");
     }
+
+    // ---- A split payment is recorded once, however often it's sent
+
+    /// <summary>Sam paid $20 of the $40 trip invoice, then the cost rose to $360: $20 left on inv1, $320 on the top-up inv2.
+    /// Payments recorded through the fake ledger really reduce what's owed, as the real one does.</summary>
+    private async Task<SignInAppService> WithTopUpAsync(ISignInAppRepository? repository = null)
+    {
+        await InvoicedAndPaidAsync(paid: 20);
+        await Service().ReceiveTripAsync("t1", Trip(Sam(360)));
+        await Service().ApplyAsync("t1", "Treasurer");
+        _accounts.When(a => a.RecordInvoicePaymentAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>()))
+            .Do(c => Pay(c.ArgAt<string>(1), c.ArgAt<decimal>(2)));
+        return new SignInAppService(repository ?? _repository, _scouts, _guardians, _invoices, _accounts, _audit, new PassThroughUnitOfWork(), TimeProvider.System);
+    }
+
+    private static TripPaymentUpload SplitPayment(decimal amount = 100) =>
+        new("pay1", "e1", amount, InvoicePaymentMethod.Check, "1234", "Leader");
+
+    [Fact]
+    public async Task A_split_payment_sent_twice_pays_each_invoice_once()
+    {
+        var service = await WithTopUpAsync();
+
+        var first = await service.RecordPaymentAsync("t1", SplitPayment());
+        var again = await service.RecordPaymentAsync("t1", SplitPayment());
+
+        Assert.Equal((TripPaymentOutcome.Recorded, TripPaymentOutcome.AlreadyRecorded), (first.Outcome, again.Outcome));
+        await _accounts.Received(1).RecordInvoicePaymentAsync("s-sam", "inv1", 20, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
+        await _accounts.Received(1).RecordInvoicePaymentAsync("s-sam", "inv2", 80, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
+        Assert.Equal(2, _accounts.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IScoutAccountService.RecordInvoicePaymentAsync)));
+        Assert.Equal((0m, 240m), (_issued["inv1"].AmountDueFromFamily, _issued["inv2"].AmountDueFromFamily));
+        var status = Assert.Single(await service.GetStatusAsync("t1"));
+        Assert.Equal((240m, 120m), (status.Due, status.Paid));
+    }
+
+    [Fact]
+    public async Task A_payment_id_already_used_records_nothing_even_with_a_different_amount()
+    {
+        var service = await WithTopUpAsync();
+        await service.RecordPaymentAsync("t1", SplitPayment(100));
+
+        var resent = await service.RecordPaymentAsync("t1", SplitPayment(300));
+
+        Assert.Equal(TripPaymentOutcome.AlreadyRecorded, resent.Outcome);
+        Assert.Equal(100m, Assert.Single(_repository.Payments.Values).Amount);
+        Assert.Equal(240m, _issued["inv2"].AmountDueFromFamily);
+    }
+
+    [Fact]
+    public async Task Two_copies_arriving_at_once_the_one_that_loses_says_already_recorded()
+    {
+        // The other copy saves its record between this one's check and its own save, so the
+        // database refuses this one's (duplicate key) and its transaction rolls back.
+        var racing = new RacingPaymentRepository(_repository, otherCopyWins: true);
+        var service = await WithTopUpAsync(racing);
+
+        var result = await service.RecordPaymentAsync("t1", SplitPayment());
+
+        Assert.Equal(TripPaymentOutcome.AlreadyRecorded, result.Outcome);
+        Assert.Single(_repository.Payments.Values);
+    }
+
+    [Fact]
+    public async Task A_database_failure_that_isnt_a_duplicate_is_not_hidden()
+    {
+        var failing = new RacingPaymentRepository(_repository, otherCopyWins: false);
+        var service = await WithTopUpAsync(failing);
+
+        await Assert.ThrowsAsync<Microsoft.EntityFrameworkCore.DbUpdateException>(() => service.RecordPaymentAsync("t1", SplitPayment()));
+
+        Assert.Empty(_repository.Payments);
+    }
+
+    /// <summary>The in-memory repository, except that saving a payment fails as the database would:
+    /// after another copy of the same payment got in first, or for some other reason.</summary>
+    private sealed class RacingPaymentRepository(InMemorySignInAppRepository inner, bool otherCopyWins) : ISignInAppRepository
+    {
+        public Task<IReadOnlyList<SignInPersonEntity>> GetPeopleAsync() => inner.GetPeopleAsync();
+        public Task<SignInPersonEntity?> GetPersonAsync(string personId) => inner.GetPersonAsync(personId);
+        public Task SavePersonAsync(SignInPersonEntity person) => inner.SavePersonAsync(person);
+        public Task<IReadOnlyList<TripImportEntity>> GetTripsAsync() => inner.GetTripsAsync();
+        public Task<TripImportEntity?> GetTripAsync(string signUpId) => inner.GetTripAsync(signUpId);
+        public Task SaveTripAsync(TripImportEntity trip) => inner.SaveTripAsync(trip);
+        public Task<IReadOnlyList<TripImportLineEntity>> GetLinesAsync(string signUpId) => inner.GetLinesAsync(signUpId);
+        public Task<IReadOnlyList<TripImportLineEntity>> GetAllLinesAsync() => inner.GetAllLinesAsync();
+        public Task<TripImportLineEntity?> GetLineAsync(string signUpId, string entryId) => inner.GetLineAsync(signUpId, entryId);
+        public Task SaveLineAsync(TripImportLineEntity line) => inner.SaveLineAsync(line);
+        public Task<TripPaymentEntity?> GetPaymentAsync(string signUpId, string paymentId) => inner.GetPaymentAsync(signUpId, paymentId);
+
+        public async Task AddPaymentAsync(TripPaymentEntity payment)
+        {
+            if (otherCopyWins)
+            {
+                await inner.AddPaymentAsync(new TripPaymentEntity
+                {
+                    PartitionKey = payment.PartitionKey, RowKey = payment.RowKey, EntryId = payment.EntryId, InvoiceId = payment.InvoiceId,
+                    Amount = payment.Amount, Method = payment.Method, RecordedBy = "the other copy",
+                });
+            }
+
+            throw new Microsoft.EntityFrameworkCore.DbUpdateException("Cannot insert duplicate key row in TripPayments.");
+        }
+    }
 }
