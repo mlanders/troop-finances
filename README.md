@@ -45,7 +45,7 @@ npm run dev                      # http://localhost:8787, sign-in codes print to
 npm test && npm run typecheck
 ```
 
-Deploy manually with `npx wrangler login && npm run deploy`.
+Deploy manually with `npx wrangler login && npm run deploy`. The Worker creates its own tables on first run; `npm run db:remote` is only needed if you add new migrations later.
 
 ## Notes on the port
 
