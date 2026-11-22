@@ -12,8 +12,8 @@
   "triggers": { "crons": ["17 8 * * *"] },
   "vars": {
     "TROOP_NAME": "Our Troop",
-    "ADMIN_EMAILS": "",
-    "EMAIL_FROM": ""
+    "ADMIN_EMAILS": "mike@landers.dev",
+    "EMAIL_FROM": "mike@landers.dev"
   },
   // Lets the Worker import its schema file as text, so it can create its own tables on first run.
   "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
