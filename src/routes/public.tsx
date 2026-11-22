@@ -13,7 +13,7 @@ publicRoutes.get("/", (c) => {
 
 publicRoutes.get("/login", (c) =>
   page(c, "Sign in", (
-    <form method="post" action="/login" class="card narrow">
+    <form method="post" action="/login" class="card narrow login">
       <p class="muted">Enter the email address the troop has on file. We'll email you a 6-digit code.</p>
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="email" required autofocus />
@@ -32,7 +32,7 @@ publicRoutes.post("/login", async (c) => {
 publicRoutes.get("/login/verify", (c) => {
   const email = c.req.query("email") ?? "";
   return page(c, "Enter your code", (
-    <form method="post" action="/login/verify" class="card narrow">
+    <form method="post" action="/login/verify" class="card narrow login">
       <input type="hidden" name="email" value={email} />
       <p class="muted">Code sent to <b>{email}</b>. It expires in 10 minutes.</p>
       <label for="code">6-digit code</label>
