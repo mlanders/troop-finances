@@ -21,6 +21,7 @@ nav a{color:#dbe5f7;text-decoration:none;font-weight:600;font-size:.92rem;paddin
 nav a:hover{background:rgba(255,255,255,.14);color:#fff}
 header form button,header form button.secondary{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);padding:.4rem .8rem;font-size:.9rem}
 header form button:hover{background:rgba(255,255,255,.22)}
+footer{text-align:center;color:var(--muted);font-size:.8rem;padding:1.5rem 1rem 2rem}
 main{max-width:1040px;margin:0 auto;padding:1.25rem 1rem 3rem}
 h1{font-size:clamp(1.6rem,4vw,2.1rem);line-height:1.15;margin:.4rem 0 1.25rem;font-weight:800;letter-spacing:-.015em;color:var(--fg)}
 h1::after{content:"";display:block;width:56px;height:4px;border-radius:2px;background:var(--red);margin-top:.6rem}
@@ -96,6 +97,7 @@ export const Layout: FC<PropsWithChildren<{ title: string; troop: string; user: 
           <h1>{p.title}</h1>
           {p.children}
         </main>
+        <footer>Troop Finances · open source</footer>
       </body>
     </html>
   </>
